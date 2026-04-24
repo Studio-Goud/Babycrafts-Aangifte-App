@@ -56,10 +56,23 @@ export async function syncEmails(): Promise<{
     const lock = await client.getMailboxLock('INBOX')
 
     try {
-      // Search for emails newer than last processed
+      // Fetch already-processed message IDs from DB to prevent duplicates
+      const { data: existingDocs } = await supabase
+        .from('documents')
+        .select('source_subject, source_email, created_at')
+        .eq('source', 'email')
+        .order('created_at', { ascending: false })
+        .limit(500)
+
+      // Build a Set of "from|subject" fingerprints already processed
+      const processed = new Set(
+        (existingDocs || []).map((d: { source_email: string; source_subject: string }) => `${d.source_email}|${d.source_subject}`)
+      )
+
+      // Only fetch emails since last known UID (incremental), or last 30 days on first run
       const searchCriteria = lastUid > 0
         ? { uid: `${lastUid + 1}:*` }
-        : { since: new Date(Date.now() - 90 * 24 * 60 * 60 * 1000) } // last 90 days
+        : { since: new Date(Date.now() - 30 * 24 * 60 * 60 * 1000) }
 
       const messages = client.fetch(searchCriteria, {
         uid: true,
@@ -76,16 +89,19 @@ export async function syncEmails(): Promise<{
 
         if (!isLikelyInvoiceEmail(subject, from)) continue
 
+        // Skip if already processed (duplicate guard)
+        const fingerprint = `${from}|${subject}`
+        if (processed.has(fingerprint)) continue
+
         emails_found++
 
         // Parse attachments from source
         const source = msg.source?.toString() || ''
 
-        // Check if it has PDF/image attachments by checking content-type in source
         const hasPDFAttachment = source.toLowerCase().includes('application/pdf') ||
           source.toLowerCase().includes('content-type: image/')
 
-        if (!hasPDFAttachment && !isLikelyInvoiceEmail(subject, from)) continue
+        if (!hasPDFAttachment) continue
 
         // Extract PDF attachments
         const attachments = extractAttachmentsFromRaw(source)
@@ -124,6 +140,9 @@ export async function syncEmails(): Promise<{
             .single()
 
           if (docError || !doc) continue
+
+          // Mark as processed in this run to prevent same-run duplicates
+          processed.add(fingerprint)
 
           // Process with Claude
           const result = await processDocument(
