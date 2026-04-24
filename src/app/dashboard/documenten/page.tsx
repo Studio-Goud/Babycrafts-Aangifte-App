@@ -50,7 +50,7 @@ export default function DocumentenPage() {
 
     // Delete from storage
     if (doc.filename) {
-      await supabase.storage.from('documents').remove([doc.filename])
+      await supabase.storage.from('Documents').remove([doc.filename])
     }
 
     // Delete document record

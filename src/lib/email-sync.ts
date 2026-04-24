@@ -56,11 +56,15 @@ interface SyncOptions {
   force?: boolean
 }
 
+const BUCKET = 'Documents'
+
 async function ensureBucket(supabase: ReturnType<typeof createServiceClient>) {
   const { data: buckets } = await supabase.storage.listBuckets()
-  const exists = (buckets || []).some((b: { name: string }) => b.name === 'documents')
-  if (!exists) {
-    await supabase.storage.createBucket('documents', { public: true, fileSizeLimit: 52428800 })
+  const existing = (buckets || []).find((b: { name: string; public: boolean }) => b.name === BUCKET)
+  if (!existing) {
+    await supabase.storage.createBucket(BUCKET, { public: true, fileSizeLimit: 52428800 })
+  } else if (!existing.public) {
+    await supabase.storage.updateBucket(BUCKET, { public: true })
   }
 }
 
@@ -156,12 +160,12 @@ export async function syncEmails(options: SyncOptions = {}): Promise<{
           const storageKey = `email_${Date.now()}_${Math.random().toString(36).slice(2)}_${safeFilename}`
 
           const { error: uploadErr } = await supabase.storage
-            .from('documents')
+            .from(BUCKET)
             .upload(storageKey, att.data, { contentType: att.contentType })
 
           if (uploadErr) continue
 
-          const { data: urlData } = supabase.storage.from('documents').getPublicUrl(storageKey)
+          const { data: urlData } = supabase.storage.from(BUCKET).getPublicUrl(storageKey)
 
           const { data: doc, error: docErr } = await supabase
             .from('documents')

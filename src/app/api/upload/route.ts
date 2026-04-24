@@ -4,11 +4,15 @@ import { processDocument, processINGCSV } from '@/lib/claude-processor'
 
 export const maxDuration = 60
 
+const BUCKET = 'Documents'
+
 async function ensureBucket(supabase: ReturnType<typeof createServiceClient>) {
   const { data: buckets } = await supabase.storage.listBuckets()
-  const exists = (buckets || []).some((b: { name: string }) => b.name === 'documents')
-  if (!exists) {
-    await supabase.storage.createBucket('documents', { public: true, fileSizeLimit: 52428800 })
+  const existing = (buckets || []).find((b: { name: string; public: boolean }) => b.name === BUCKET)
+  if (!existing) {
+    await supabase.storage.createBucket(BUCKET, { public: true, fileSizeLimit: 52428800 })
+  } else if (!existing.public) {
+    await supabase.storage.updateBucket(BUCKET, { public: true })
   }
 }
 
@@ -28,21 +32,21 @@ export async function POST(req: NextRequest) {
     const filename = file.name
     const isCSV = filename.toLowerCase().endsWith('.csv') || mimeType === 'text/csv'
 
-    // Ensure bucket exists
+    // Ensure bucket exists and is public
     await ensureBucket(supabase)
 
     // Upload to Supabase Storage
     const safeFilename = filename.replace(/[^a-zA-Z0-9._-]/g, '_')
     const storageKey = `uploads/${Date.now()}_${safeFilename}`
     const { error: storageError } = await supabase.storage
-      .from('documents')
+      .from(BUCKET)
       .upload(storageKey, buffer, { contentType: mimeType })
 
     if (storageError) {
       return NextResponse.json({ error: `Storage fout: ${storageError.message}` }, { status: 500 })
     }
 
-    const { data: urlData } = supabase.storage.from('documents').getPublicUrl(storageKey)
+    const { data: urlData } = supabase.storage.from(BUCKET).getPublicUrl(storageKey)
 
     // Create document record
     const { data: doc, error: docError } = await supabase
