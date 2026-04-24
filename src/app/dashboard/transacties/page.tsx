@@ -188,19 +188,19 @@ export default function TransactiesPage() {
   }
 
   return (
-    <div className="p-6 max-w-6xl mx-auto">
-      <div className="flex items-center justify-between mb-6">
+    <div className="p-4 sm:p-6 max-w-6xl mx-auto">
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-6">
         <div>
           <h1 className="text-2xl font-bold text-gray-900">Transacties</h1>
           <p className="text-gray-500 mt-1">Alle ingeboekte transacties</p>
         </div>
-        <div className="flex items-center gap-3">
+        <div className="flex flex-wrap items-center gap-2">
           <button
             onClick={() => setShowForm(true)}
             className="flex items-center gap-2 bg-blue-600 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-blue-700 transition-colors"
           >
             <Plus className="w-4 h-4" />
-            Handmatig boeken
+            <span>Boeken</span>
           </button>
           <div className="relative">
             <select
@@ -221,7 +221,7 @@ export default function TransactiesPage() {
             title="Wis alle transacties en documenten van dit kwartaal"
           >
             <Trash2 className="w-4 h-4" />
-            Wis kwartaal
+            <span className="hidden sm:inline">Wis kwartaal</span>
           </button>
         </div>
       </div>
@@ -409,7 +409,7 @@ export default function TransactiesPage() {
       )}
 
       {/* Summary */}
-      <div className="grid grid-cols-3 gap-4 mb-6">
+      <div className="grid grid-cols-3 gap-2 sm:gap-4 mb-4 sm:mb-6">
         <div className="bg-green-50 border border-green-100 rounded-xl p-4">
           <p className="text-xs text-green-600 font-medium">Omzet excl. BTW</p>
           <p className="text-xl font-bold text-green-700 mt-1">{formatEuro(totaalOmzet)}</p>
@@ -427,8 +427,8 @@ export default function TransactiesPage() {
       </div>
 
       {/* Filter + Search */}
-      <div className="flex items-center gap-3 mb-4">
-        <div className="flex gap-2">
+      <div className="flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-3 mb-4">
+        <div className="flex gap-1.5 flex-wrap">
           {(['all', 'inkomend', 'uitgaand'] as const).map(f => (
             <button
               key={f}
@@ -451,7 +451,7 @@ export default function TransactiesPage() {
         >
           {toonAlle ? 'Verberg ingeboekt' : `Toon ingeboekt${ingeboektCount > 0 ? ` (${ingeboektCount})` : ''}`}
         </button>
-        <div className="relative flex-1 max-w-sm ml-auto">
+        <div className="relative w-full sm:max-w-sm sm:ml-auto">
           <Search className="absolute left-3 top-2 w-4 h-4 text-gray-400 pointer-events-none" />
           <input
             type="text"
@@ -476,7 +476,7 @@ export default function TransactiesPage() {
 
       {/* Bulk action bar */}
       {someSelected && (
-        <div className="sticky top-4 z-30 mb-3 bg-blue-600 text-white rounded-xl px-4 py-3 flex items-center gap-3 shadow-lg flex-wrap">
+        <div className="sticky top-2 z-30 mb-3 bg-blue-600 text-white rounded-xl px-3 py-3 flex items-center gap-2 shadow-lg flex-wrap">
           <span className="text-sm font-medium mr-1">
             <CheckSquare className="w-4 h-4 inline mr-1.5 opacity-80" />
             {selectedIds.size} geselecteerd
@@ -535,65 +535,95 @@ export default function TransactiesPage() {
           <p>{q ? `Geen resultaten voor "${search}"` : toonAlle ? 'Geen transacties in dit kwartaal' : 'Alle transacties zijn ingeboekt 🎉'}</p>
         </div>
       ) : (
-        <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
-          <table className="w-full text-sm">
-            <thead className="bg-gray-50 border-b border-gray-100">
-              <tr className="text-left text-gray-500">
-                <th className="px-4 py-3 w-8">
-                  <input
-                    type="checkbox"
-                    checked={allVisible}
-                    onChange={toggleAll}
-                    className="rounded border-gray-300 text-blue-600 cursor-pointer"
-                  />
-                </th>
-                <th className="px-4 py-3 font-medium">Datum</th>
-                <th className="px-4 py-3 font-medium">Leverancier</th>
-                <th className="px-4 py-3 font-medium">Beschrijving</th>
-                <th className="px-4 py-3 font-medium">Categorie</th>
-                <th className="px-4 py-3 font-medium text-right">Excl. BTW</th>
-                <th className="px-4 py-3 font-medium text-right">BTW</th>
-                <th className="px-4 py-3 font-medium text-right">Incl. BTW</th>
-                <th className="px-4 py-3 font-medium">Type</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-gray-50">
-              {filtered.map(t => {
-                const selected = selectedIds.has(t.id)
-                return (
-                  <tr
-                    key={t.id}
-                    onClick={() => toggleOne(t.id)}
-                    className={`cursor-pointer transition-colors ${selected ? 'bg-blue-50 hover:bg-blue-100' : 'hover:bg-gray-50'}`}
-                  >
-                    <td className="px-4 py-3" onClick={e => e.stopPropagation()}>
-                      <input
-                        type="checkbox"
-                        checked={selected}
-                        onChange={() => toggleOne(t.id)}
-                        className="rounded border-gray-300 text-blue-600 cursor-pointer"
-                      />
-                    </td>
-                    <td className="px-4 py-3 text-gray-600">{t.datum}</td>
-                    <td className="px-4 py-3 font-medium text-gray-900 max-w-32 truncate">{t.leverancier || '—'}</td>
-                    <td className="px-4 py-3 text-gray-500 max-w-40 truncate">{t.beschrijving || '—'}</td>
-                    <td className="px-4 py-3 text-gray-500 text-xs">{t.categorie || '—'}</td>
-                    <td className="px-4 py-3 text-right text-gray-700">{formatEuro(t.bedrag_excl_btw)}</td>
-                    <td className="px-4 py-3 text-right text-gray-400 text-xs">{t.btw_percentage || 0}%</td>
-                    <td className="px-4 py-3 text-right font-medium text-gray-900">{formatEuro(t.bedrag_incl_btw || 0)}</td>
-                    <td className="px-4 py-3">
-                      <span className={`text-xs px-2 py-0.5 rounded-full ${
+        <>
+          {/* Mobile: card list */}
+          <div className="sm:hidden space-y-2">
+            <div className="flex items-center gap-2 px-1 pb-1">
+              <input type="checkbox" checked={allVisible} onChange={toggleAll}
+                className="rounded border-gray-300 text-blue-600 cursor-pointer" />
+              <span className="text-xs text-gray-400">Alles selecteren</span>
+            </div>
+            {filtered.map(t => {
+              const selected = selectedIds.has(t.id)
+              return (
+                <div key={t.id} onClick={() => toggleOne(t.id)}
+                  className={`rounded-xl border p-3 flex items-start gap-3 cursor-pointer transition-colors ${
+                    selected ? 'bg-blue-50 border-blue-300' : 'bg-white border-gray-200'
+                  }`}>
+                  <input type="checkbox" checked={selected} onChange={() => toggleOne(t.id)}
+                    onClick={e => e.stopPropagation()}
+                    className="rounded border-gray-300 text-blue-600 cursor-pointer mt-0.5 shrink-0" />
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center justify-between gap-2">
+                      <p className="text-sm font-semibold text-gray-900 truncate">
+                        {t.leverancier || t.beschrijving || '—'}
+                      </p>
+                      <p className="text-sm font-bold text-gray-900 shrink-0">
+                        {formatEuro(t.bedrag_incl_btw || 0)}
+                      </p>
+                    </div>
+                    <div className="flex items-center gap-2 mt-0.5 flex-wrap">
+                      <span className="text-xs text-gray-400">{t.datum}</span>
+                      {t.categorie && <span className="text-xs text-blue-600">{t.categorie}</span>}
+                      <span className={`text-xs px-1.5 py-0.5 rounded-full ${
                         t.type === 'inkomend' ? 'bg-red-50 text-red-600' : 'bg-green-50 text-green-600'
-                      }`}>
-                        {t.type === 'inkomend' ? 'Kosten' : 'Omzet'}
-                      </span>
-                    </td>
-                  </tr>
-                )
-              })}
-            </tbody>
-          </table>
-        </div>
+                      }`}>{t.type === 'inkomend' ? 'Kosten' : 'Omzet'}</span>
+                      <span className="text-xs text-gray-400">{t.btw_percentage || 0}% BTW</span>
+                    </div>
+                  </div>
+                </div>
+              )
+            })}
+          </div>
+
+          {/* Desktop: table */}
+          <div className="hidden sm:block bg-white rounded-xl border border-gray-200 overflow-hidden">
+            <table className="w-full text-sm">
+              <thead className="bg-gray-50 border-b border-gray-100">
+                <tr className="text-left text-gray-500">
+                  <th className="px-4 py-3 w-8">
+                    <input type="checkbox" checked={allVisible} onChange={toggleAll}
+                      className="rounded border-gray-300 text-blue-600 cursor-pointer" />
+                  </th>
+                  <th className="px-4 py-3 font-medium">Datum</th>
+                  <th className="px-4 py-3 font-medium">Leverancier</th>
+                  <th className="px-4 py-3 font-medium">Beschrijving</th>
+                  <th className="px-4 py-3 font-medium">Categorie</th>
+                  <th className="px-4 py-3 font-medium text-right">Excl. BTW</th>
+                  <th className="px-4 py-3 font-medium text-right">BTW%</th>
+                  <th className="px-4 py-3 font-medium text-right">Incl. BTW</th>
+                  <th className="px-4 py-3 font-medium">Type</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-gray-50">
+                {filtered.map(t => {
+                  const selected = selectedIds.has(t.id)
+                  return (
+                    <tr key={t.id} onClick={() => toggleOne(t.id)}
+                      className={`cursor-pointer transition-colors ${selected ? 'bg-blue-50 hover:bg-blue-100' : 'hover:bg-gray-50'}`}>
+                      <td className="px-4 py-3" onClick={e => e.stopPropagation()}>
+                        <input type="checkbox" checked={selected} onChange={() => toggleOne(t.id)}
+                          className="rounded border-gray-300 text-blue-600 cursor-pointer" />
+                      </td>
+                      <td className="px-4 py-3 text-gray-600">{t.datum}</td>
+                      <td className="px-4 py-3 font-medium text-gray-900 max-w-32 truncate">{t.leverancier || '—'}</td>
+                      <td className="px-4 py-3 text-gray-500 max-w-40 truncate">{t.beschrijving || '—'}</td>
+                      <td className="px-4 py-3 text-gray-500 text-xs">{t.categorie || '—'}</td>
+                      <td className="px-4 py-3 text-right text-gray-700">{formatEuro(t.bedrag_excl_btw)}</td>
+                      <td className="px-4 py-3 text-right text-gray-400 text-xs">{t.btw_percentage || 0}%</td>
+                      <td className="px-4 py-3 text-right font-medium text-gray-900">{formatEuro(t.bedrag_incl_btw || 0)}</td>
+                      <td className="px-4 py-3">
+                        <span className={`text-xs px-2 py-0.5 rounded-full ${
+                          t.type === 'inkomend' ? 'bg-red-50 text-red-600' : 'bg-green-50 text-green-600'
+                        }`}>{t.type === 'inkomend' ? 'Kosten' : 'Omzet'}</span>
+                      </td>
+                    </tr>
+                  )
+                })}
+              </tbody>
+            </table>
+          </div>
+        </>
       )}
     </div>
   )

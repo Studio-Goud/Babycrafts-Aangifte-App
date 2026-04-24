@@ -127,8 +127,8 @@ export default function DocumentenPage() {
   const linkDoc = docs.find(d => d.id === linkDocId)
 
   return (
-    <div className="p-6 max-w-6xl mx-auto">
-      <div className="flex items-center justify-between mb-6 gap-4 flex-wrap">
+    <div className="p-4 sm:p-6 max-w-6xl mx-auto">
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-6">
         <div>
           <h1 className="text-2xl font-bold text-gray-900">Documenten</h1>
           <p className="text-gray-500 mt-1">Alle geüploade documenten</p>
@@ -297,7 +297,53 @@ export default function DocumentenPage() {
           <p>{q ? `Geen resultaten voor "${search}"` : 'Geen documenten gevonden'}</p>
         </div>
       ) : (
-        <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
+        <>
+          {/* Mobile: cards */}
+          <div className="sm:hidden space-y-2">
+            <div className="flex items-center gap-2 px-1 pb-1">
+              <input type="checkbox" checked={allSelected} onChange={toggleAll}
+                className="rounded border-gray-300 text-red-600 cursor-pointer" />
+              <span className="text-xs text-gray-400">Alles selecteren</span>
+            </div>
+            {filtered.map(doc => {
+              const status = statusConfig[doc.status] || statusConfig.pending
+              const StatusIcon = status.icon
+              const sel = selectedIds.has(doc.id)
+              return (
+                <div key={doc.id} onClick={() => toggleOne(doc.id)}
+                  className={`rounded-xl border p-3 flex items-start gap-3 cursor-pointer transition-colors ${sel ? 'bg-red-50 border-red-300' : 'bg-white border-gray-200'}`}>
+                  <input type="checkbox" checked={sel} onChange={() => toggleOne(doc.id)}
+                    onClick={e => e.stopPropagation()}
+                    className="rounded border-gray-300 text-red-600 cursor-pointer mt-0.5 shrink-0" />
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-medium text-gray-900 truncate">{doc.original_filename}</p>
+                    <div className="flex items-center gap-2 mt-1 flex-wrap">
+                      <StatusIcon className={`w-3.5 h-3.5 ${status.color}`} />
+                      <span className={`text-xs ${status.color}`}>{status.label}</span>
+                      <span className="text-xs text-gray-400">{doc.kwartaal || '—'}</span>
+                      <span className="text-xs text-gray-400 capitalize">{doc.file_type}</span>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-2 shrink-0" onClick={e => e.stopPropagation()}>
+                    <button onClick={() => openLinkModal(doc.id)} className="text-gray-400 hover:text-blue-500 p-1">
+                      <Link2 className="w-4 h-4" />
+                    </button>
+                    {doc.file_url && (
+                      <a href={doc.file_url} target="_blank" rel="noopener noreferrer" className="text-gray-400 hover:text-blue-500 p-1">
+                        <ExternalLink className="w-4 h-4" />
+                      </a>
+                    )}
+                    <button onClick={() => setConfirmDelete(doc.id)} className="text-gray-300 hover:text-red-500 p-1">
+                      <Trash2 className="w-4 h-4" />
+                    </button>
+                  </div>
+                </div>
+              )
+            })}
+          </div>
+
+          {/* Desktop: table */}
+          <div className="hidden sm:block bg-white rounded-xl border border-gray-200 overflow-hidden">
           <table className="w-full text-sm">
             <thead className="bg-gray-50 border-b border-gray-100">
               <tr className="text-left text-gray-500">
@@ -379,7 +425,8 @@ export default function DocumentenPage() {
               })}
             </tbody>
           </table>
-        </div>
+          </div>
+        </>
       )}
     </div>
   )

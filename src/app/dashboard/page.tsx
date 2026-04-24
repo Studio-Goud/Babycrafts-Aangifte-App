@@ -54,8 +54,8 @@ export default function DashboardPage() {
   const periodLabel = modeJaar ? `Heel ${jaar}` : `${kwartaal} ${jaar}`
 
   return (
-    <div className="p-6 max-w-7xl mx-auto">
-      <div className="flex items-start justify-between mb-6">
+    <div className="p-4 sm:p-6 max-w-7xl mx-auto">
+      <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3 mb-6">
         <div>
           <h1 className="text-2xl font-bold text-gray-900">Dashboard</h1>
           <p className="text-gray-500 mt-1">{periodLabel}</p>
@@ -101,7 +101,7 @@ export default function DashboardPage() {
       </div>
 
       {/* BTW Summary Cards */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4 mb-6 sm:mb-8">
         <SummaryCard
           title="Omzet (excl. BTW)"
           value={loading ? '…' : formatEuro(stats?.omzet ?? 0)}
