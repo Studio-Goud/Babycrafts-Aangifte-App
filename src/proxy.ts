@@ -5,7 +5,7 @@ export function proxy(req: NextRequest) {
   const session = req.cookies.get('btw_session')?.value
   const correct = process.env.APP_PASSWORD || '2911'
 
-  const isPublic = pathname.startsWith('/login') || pathname.startsWith('/api/auth')
+  const isPublic = pathname.startsWith('/login') || pathname.startsWith('/api/auth') || pathname.startsWith('/api/storage-check')
 
   if (!isPublic && session !== correct) {
     const loginUrl = req.nextUrl.clone()
