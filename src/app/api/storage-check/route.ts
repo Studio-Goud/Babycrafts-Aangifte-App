@@ -1,52 +1,39 @@
 import { NextResponse } from 'next/server'
-import { createServiceClient } from '@/lib/supabase/server'
 
 export const maxDuration = 30
 
 export async function GET() {
+  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL
+  const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY
+  const anonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
+
+  const diag = {
+    supabase_url_set: !!supabaseUrl,
+    supabase_url_value: supabaseUrl ? supabaseUrl.substring(0, 40) + '...' : 'MISSING',
+    service_key_set: !!serviceKey,
+    service_key_length: serviceKey?.length ?? 0,
+    service_key_prefix: serviceKey ? serviceKey.substring(0, 20) + '...' : 'MISSING',
+    anon_key_set: !!anonKey,
+    anon_key_length: anonKey?.length ?? 0,
+  }
+
+  if (!supabaseUrl || !serviceKey) {
+    return NextResponse.json({ error: 'Missing env vars', diag })
+  }
+
+  // Try storage directly via fetch (no SDK, raw HTTP)
   try {
-    const supabase = createServiceClient()
-
-    // List buckets
-    const { data: buckets, error: bucketsErr } = await supabase.storage.listBuckets()
-    if (bucketsErr) {
-      return NextResponse.json({ step: 'list_buckets', error: bucketsErr.message })
-    }
-
-    const bucketNames = (buckets || []).map((b: { name: string }) => b.name)
-    const hasDocuments = bucketNames.includes('documents')
-
-    // Try creating bucket if missing
-    if (!hasDocuments) {
-      const { error: createErr } = await supabase.storage.createBucket('documents', {
-        public: true,
-        fileSizeLimit: 52428800,
-      })
-      if (createErr) {
-        return NextResponse.json({ step: 'create_bucket', error: createErr.message, buckets: bucketNames })
-      }
-    }
-
-    // Try uploading a small test file
-    const testKey = `test/ping_${Date.now()}.txt`
-    const { error: uploadErr } = await supabase.storage
-      .from('documents')
-      .upload(testKey, Buffer.from('ping'), { contentType: 'text/plain' })
-
-    if (uploadErr) {
-      return NextResponse.json({ step: 'test_upload', error: uploadErr.message, buckets: bucketNames, bucket_created: !hasDocuments })
-    }
-
-    // Clean up test file
-    await supabase.storage.from('documents').remove([testKey])
-
-    return NextResponse.json({
-      ok: true,
-      buckets: bucketNames,
-      documents_bucket_existed: hasDocuments,
-      test_upload: 'success',
+    const res = await fetch(`${supabaseUrl}/storage/v1/bucket`, {
+      headers: {
+        apikey: serviceKey,
+        Authorization: `Bearer ${serviceKey}`,
+      },
     })
-  } catch (error) {
-    return NextResponse.json({ error: error instanceof Error ? error.message : String(error) })
+    const text = await res.text()
+    let body
+    try { body = JSON.parse(text) } catch { body = text }
+    return NextResponse.json({ diag, storage_status: res.status, storage_response: body })
+  } catch (err) {
+    return NextResponse.json({ diag, fetch_error: err instanceof Error ? err.message : String(err) })
   }
 }
