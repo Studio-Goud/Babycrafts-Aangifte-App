@@ -2,6 +2,8 @@ import { ImapFlow } from 'imapflow'
 import { createServiceClient } from './supabase/server'
 import { processDocument } from './claude-processor'
 
+const BUCKET = 'Documents'
+
 function isPDFOrImage(filename: string, contentType: string): boolean {
   const name = (filename || '').toLowerCase()
   const type = (contentType || '').toLowerCase()
@@ -12,16 +14,13 @@ function isPDFOrImage(filename: string, contentType: string): boolean {
   )
 }
 
-// Recursively find all PDF/image parts in MIME tree, return their part numbers
 function findAttachmentParts(
   node: any,
   prefix = ''
 ): Array<{ part: string; filename: string; contentType: string }> {
   if (!node) return []
-
   const results: Array<{ part: string; filename: string; contentType: string }> = []
 
-  // Multipart container — recurse into children
   if (Array.isArray(node.childNodes) && node.childNodes.length > 0) {
     node.childNodes.forEach((child: any, i: number) => {
       const childPart = prefix ? `${prefix}.${i + 1}` : `${i + 1}`
@@ -46,8 +45,16 @@ function findAttachmentParts(
       contentType,
     })
   }
-
   return results
+}
+
+async function streamToBuffer(stream: NodeJS.ReadableStream): Promise<Buffer> {
+  return new Promise((resolve, reject) => {
+    const chunks: Buffer[] = []
+    stream.on('data', (chunk: Buffer) => chunks.push(chunk))
+    stream.on('end', () => resolve(Buffer.concat(chunks)))
+    stream.on('error', reject)
+  })
 }
 
 interface SyncOptions {
@@ -55,8 +62,6 @@ interface SyncOptions {
   to?: string
   force?: boolean
 }
-
-const BUCKET = 'Documents'
 
 async function ensureBucket(supabase: ReturnType<typeof createServiceClient>) {
   const { data: buckets } = await supabase.storage.listBuckets()
@@ -119,98 +124,105 @@ export async function syncEmails(options: SyncOptions = {}): Promise<{
         searchCriteria = { since: new Date(Date.now() - 30 * 24 * 60 * 60 * 1000) }
       }
 
+      // Pass 1: collect messages with attachments (no source needed)
+      type MsgInfo = {
+        uid: number
+        subject: string
+        from: string
+        parts: Array<{ part: string; filename: string; contentType: string }>
+      }
+      const toProcess: MsgInfo[] = []
       let maxUid = lastUid
 
-      // Single pass: fetch envelope + bodyStructure + source together
-      // We limit source to avoid memory issues — only fetch if bodyStructure shows attachments
       const messages = client.fetch(searchCriteria, {
         uid: true,
         envelope: true,
         bodyStructure: true,
-        source: true,  // fetch full source so we can extract attachments inline
       })
 
       for await (const msg of messages) {
+        if (msg.uid > maxUid) maxUid = msg.uid
         const subject = msg.envelope?.subject || '(geen onderwerp)'
         const from = msg.envelope?.from?.[0]?.address || ''
         const fingerprint = `${from}|${subject}`
+        if (!options.force && processed.has(fingerprint)) continue
 
-        if (!options.force && processed.has(fingerprint)) {
-          if (msg.uid > maxUid) maxUid = msg.uid
-          continue
-        }
-
-        // Find attachment parts from structure
-        const attachmentParts = findAttachmentParts(msg.bodyStructure)
-        if (attachmentParts.length === 0) {
-          if (msg.uid > maxUid) maxUid = msg.uid
-          continue
-        }
+        const parts = findAttachmentParts(msg.bodyStructure)
+        if (parts.length === 0) continue
 
         emails_found++
+        toProcess.push({ uid: msg.uid, subject, from, parts })
+      }
 
-        // Extract attachments from raw source using MIME boundary parsing
-        const rawSource = msg.source?.toString() || ''
-        const extracted = extractFromRawMIME(rawSource, attachmentParts)
+      // Pass 2: download and process each attachment
+      for (const msgInfo of toProcess) {
+        let docCreatedForEmail = false
 
-        for (const att of extracted) {
-          if (!att.data || att.data.length < 500) continue
+        for (const partInfo of msgInfo.parts) {
+          try {
+            // Use ImapFlow's native download — handles all encoding transparently
+            const dl = await client.download(msgInfo.uid.toString(), partInfo.part, { uid: true })
+            if (!dl || !dl.content) continue
 
-          const safeFilename = att.filename.replace(/[^a-zA-Z0-9._-]/g, '_')
-          const storageKey = `email_${Date.now()}_${Math.random().toString(36).slice(2)}_${safeFilename}`
+            const data = await streamToBuffer(dl.content)
+            if (data.length < 500) continue
 
-          const { error: uploadErr } = await supabase.storage
-            .from(BUCKET)
-            .upload(storageKey, att.data, { contentType: att.contentType })
+            const safeFilename = partInfo.filename.replace(/[^a-zA-Z0-9._-]/g, '_')
+            const storageKey = `email_${Date.now()}_${Math.random().toString(36).slice(2)}_${safeFilename}`
 
-          if (uploadErr) continue
+            const { error: uploadErr } = await supabase.storage
+              .from(BUCKET)
+              .upload(storageKey, data, { contentType: partInfo.contentType })
 
-          const { data: urlData } = supabase.storage.from(BUCKET).getPublicUrl(storageKey)
+            if (uploadErr) continue
 
-          const { data: doc, error: docErr } = await supabase
-            .from('documents')
-            .insert({
-              filename: storageKey,
-              original_filename: att.filename,
-              file_url: urlData?.publicUrl,
-              file_type: 'factuur',
-              source: 'email',
-              source_email: from,
-              source_subject: subject,
-              status: 'pending',
-            })
-            .select().single()
+            const { data: urlData } = supabase.storage.from(BUCKET).getPublicUrl(storageKey)
 
-          if (docErr || !doc) continue
+            const { data: doc, error: docErr } = await supabase
+              .from('documents')
+              .insert({
+                filename: storageKey,
+                original_filename: partInfo.filename,
+                file_url: urlData?.publicUrl,
+                file_type: 'factuur',
+                source: 'email',
+                source_email: msgInfo.from,
+                source_subject: msgInfo.subject,
+                status: 'pending',
+              })
+              .select().single()
 
-          processed.add(fingerprint)
+            if (docErr || !doc) continue
 
-          const result = await processDocument(att.data, att.contentType, att.filename)
+            processed.add(`${msgInfo.from}|${msgInfo.subject}`)
 
-          if (result.success && result.transactions.length > 0) {
-            await supabase.from('transactions').insert(
-              result.transactions.map(t => ({ ...t, document_id: doc.id }))
-            )
-            await supabase.from('documents').update({
-              status: 'processed',
-              raw_text: result.raw_text,
-              file_type: result.document_type as never,
-              processed_at: new Date().toISOString(),
-              kwartaal: result.transactions[0]?.kwartaal,
-            }).eq('id', doc.id)
-            documents_created++
-          } else {
-            await supabase.from('documents').update({
-              status: result.success ? 'flagged' : 'error',
-              processing_error: result.error,
-              raw_text: result.raw_text,
-            }).eq('id', doc.id)
-            // Still count as created — user can review/reprocess
-            documents_created++
-          }
+            const result = await processDocument(data, partInfo.contentType, partInfo.filename)
+
+            if (result.success && result.transactions.length > 0) {
+              await supabase.from('transactions').insert(
+                result.transactions.map(t => ({ ...t, document_id: doc.id }))
+              )
+              await supabase.from('documents').update({
+                status: 'processed',
+                raw_text: result.raw_text,
+                file_type: result.document_type as never,
+                processed_at: new Date().toISOString(),
+                kwartaal: result.transactions[0]?.kwartaal,
+              }).eq('id', doc.id)
+            } else {
+              await supabase.from('documents').update({
+                status: result.success ? 'flagged' : 'error',
+                processing_error: result.error,
+                raw_text: result.raw_text,
+              }).eq('id', doc.id)
+            }
+
+            if (!docCreatedForEmail) {
+              documents_created++
+              docCreatedForEmail = true
+            }
+          } catch { continue }
         }
-
-        if (msg.uid > maxUid) maxUid = msg.uid
       }
 
       if (!isPeriodSync && maxUid > lastUid) {
@@ -234,86 +246,4 @@ export async function syncEmails(options: SyncOptions = {}): Promise<{
     }).catch(() => {})
     return { emails_found, documents_created, error: errorMsg }
   }
-}
-
-// Extract attachments from raw MIME source by finding all base64 encoded parts
-function extractFromRawMIME(
-  raw: string,
-  expectedParts: Array<{ part: string; filename: string; contentType: string }>
-): Array<{ filename: string; contentType: string; data: Buffer }> {
-  const results: Array<{ filename: string; contentType: string; data: Buffer }> = []
-
-  // Find all boundaries in the email
-  const boundaries: string[] = []
-  const boundaryRe = /boundary="?([^"\r\n;>]+)"?/gi
-  let m
-  while ((m = boundaryRe.exec(raw)) !== null) {
-    const b = m[1].trim()
-    if (!boundaries.includes(b)) boundaries.push(b)
-  }
-
-  // For each expected attachment, try to find and extract it
-  for (const expected of expectedParts) {
-    let found = false
-
-    // Try to find the part by content-type + filename in MIME parts
-    for (const boundary of boundaries) {
-      const parts = raw.split(`--${boundary}`)
-      for (const part of parts) {
-        if (part.trim() === '--' || part.trim() === '') continue
-
-        const ctMatch = part.match(/Content-Type:\s*([^\r\n;]+)/i)
-        if (!ctMatch) continue
-        const ct = ctMatch[1].trim().toLowerCase()
-
-        // Match by content type
-        const expectedCt = expected.contentType.toLowerCase()
-        const ctMatches = ct.includes('pdf') && expectedCt.includes('pdf') ||
-          ct.includes('image') && expectedCt.includes('image') ||
-          ct === expectedCt
-
-        if (!ctMatches) continue
-
-        // Find base64 content
-        const encMatch = part.match(/Content-Transfer-Encoding:\s*([^\r\n]+)/i)
-        const encoding = encMatch?.[1]?.trim().toLowerCase() || ''
-
-        const bodyStart = part.indexOf('\r\n\r\n')
-        if (bodyStart === -1) continue
-
-        const rawBody = part.substring(bodyStart + 4)
-        const cleanBody = rawBody.replace(/--[^\r\n]*(--)?[\r\n]*/g, '').trim()
-
-        try {
-          let data: Buffer
-          if (encoding === 'base64') {
-            data = Buffer.from(cleanBody.replace(/\s/g, ''), 'base64')
-          } else if (encoding === 'quoted-printable') {
-            data = Buffer.from(decodeQP(cleanBody))
-          } else {
-            data = Buffer.from(cleanBody)
-          }
-
-          if (data.length < 100) continue
-
-          // Get actual filename from part headers
-          const fnMatch = part.match(/filename\*?=(?:UTF-8'')?["']?([^"'\r\n;]+)["']?/i)
-          const filename = fnMatch ? decodeURIComponent(fnMatch[1].trim()) : expected.filename
-
-          results.push({ filename, contentType: expected.contentType, data })
-          found = true
-          break
-        } catch { continue }
-      }
-      if (found) break
-    }
-  }
-
-  return results
-}
-
-function decodeQP(str: string): string {
-  return str
-    .replace(/=\r\n/g, '')
-    .replace(/=([0-9A-F]{2})/gi, (_, hex) => String.fromCharCode(parseInt(hex, 16)))
 }

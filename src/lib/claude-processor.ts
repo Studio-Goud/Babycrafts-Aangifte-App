@@ -157,43 +157,100 @@ export async function processDocument(
   }
 }
 
+// Direct ING CSV parser — no Claude needed, format is well-defined
 export async function processINGCSV(csvContent: string): Promise<ProcessingResult> {
   try {
-    const message = await anthropic.messages.create({
-      model: 'claude-sonnet-4-6',
-      max_tokens: 8096,
-      system: SYSTEM_PROMPT,
-      messages: [
-        {
-          role: 'user',
-          content: `Dit is een ING bankafschrift in CSV formaat. Lees alle transacties uit en categoriseer ze.
-Let op: bij ING CSV is het formaat: Datum;Naam/Omschrijving;Rekening;Tegenrekening;Code;Af Bij;Bedrag (EUR);MutatieSoort;Mededelingen
+    const lines = csvContent.split(/\r?\n/).filter(l => l.trim())
+    if (lines.length < 2) throw new Error('CSV te kort of leeg')
 
-CSV inhoud:
-${csvContent}`,
-        },
-      ],
-    })
+    // Detect separator (semicolon or comma)
+    const sep = lines[0].includes(';') ? ';' : ','
 
-    const responseText = message.content[0].type === 'text' ? message.content[0].text : ''
-    const jsonMatch = responseText.match(/\{[\s\S]*\}/)
-    if (!jsonMatch) throw new Error('Geen geldig JSON antwoord')
+    // Parse header to find column indices
+    const headers = lines[0].split(sep).map(h => h.replace(/^"|"$/g, '').trim().toLowerCase())
+    const col = (names: string[]) => names.reduce((found, n) => found >= 0 ? found : headers.findIndex(h => h.includes(n)), -1)
 
-    const parsed = JSON.parse(jsonMatch[0])
-    const transactions: ExtractedTransaction[] = (parsed.transactions || []).map((t: ExtractedTransaction) => {
-      const date = new Date(t.datum)
-      return {
-        ...t,
+    const datumIdx   = col(['datum', 'date'])
+    const naamIdx    = col(['naam', 'name', 'omschrijving'])
+    const afbijIdx   = col(['af bij', 'af/bij', 'debet/credit', 'dc'])
+    const bedragIdx  = col(['bedrag', 'amount'])
+    const medIdx     = col(['mededeling', 'omschrijving', 'description', 'memo'])
+
+    const transactions: ExtractedTransaction[] = []
+
+    for (let i = 1; i < lines.length; i++) {
+      const raw = lines[i]
+      if (!raw.trim()) continue
+
+      // Split respecting quoted fields
+      const cols = raw.split(sep).map(c => c.replace(/^"|"$/g, '').trim())
+
+      const datumRaw = datumIdx >= 0 ? cols[datumIdx] : ''
+      const naam     = naamIdx  >= 0 ? cols[naamIdx]  : 'Onbekend'
+      const afbij    = afbijIdx >= 0 ? cols[afbijIdx] : ''
+      const bedragRaw = bedragIdx >= 0 ? cols[bedragIdx] : '0'
+      const med      = medIdx >= 0 && medIdx !== naamIdx ? cols[medIdx] : ''
+
+      // Parse datum: YYYYMMDD or DD-MM-YYYY or YYYY-MM-DD
+      let datum = ''
+      if (/^\d{8}$/.test(datumRaw)) {
+        datum = `${datumRaw.slice(0,4)}-${datumRaw.slice(4,6)}-${datumRaw.slice(6,8)}`
+      } else if (/^\d{2}-\d{2}-\d{4}$/.test(datumRaw)) {
+        const [d, m, y] = datumRaw.split('-')
+        datum = `${y}-${m}-${d}`
+      } else {
+        datum = datumRaw || new Date().toISOString().slice(0,10)
+      }
+
+      // Parse amount: replace comma decimal separator
+      const bedragNum = parseFloat(bedragRaw.replace(/\./g, '').replace(',', '.')) || 0
+      if (bedragNum === 0) continue
+
+      // Determine direction
+      const isAf = afbij.toLowerCase().includes('af') || afbij.toLowerCase() === 'd' || afbij.toLowerCase() === 'debet'
+      const type: 'inkomend' | 'uitgaand' = isAf ? 'inkomend' : 'uitgaand'
+
+      // BTW: for bank statements we record as 0% (BTW is on the invoice, not the payment)
+      const bedrag_incl_btw = bedragNum
+      const btw_percentage = 0
+      const btw_bedrag = 0
+      const bedrag_excl_btw = bedragNum
+
+      // Categorie guess
+      const omschrijving = `${naam} ${med}`.toLowerCase()
+      let categorie = 'Overig'
+      if (omschrijving.includes('postnl') || omschrijving.includes('dhl') || omschrijving.includes('transport') || omschrijving.includes('verzend')) categorie = 'Transport & Logistiek'
+      else if (omschrijving.includes('huur') || omschrijving.includes('rent')) categorie = 'Huur & Huisvesting'
+      else if (omschrijving.includes('inkoop') || omschrijving.includes('leverancier') || omschrijving.includes('aliexpress') || omschrijving.includes('amazon')) categorie = 'Inkoop goederen'
+      else if (omschrijving.includes('google') || omschrijving.includes('facebook') || omschrijving.includes('meta') || omschrijving.includes('advertent')) categorie = 'Marketing & Reclame'
+      else if (omschrijving.includes('software') || omschrijving.includes('subscri') || omschrijving.includes('abonnement')) categorie = 'Software & Abonnementen'
+      else if (omschrijving.includes('telefoon') || omschrijving.includes('odido') || omschrijving.includes('kpn') || omschrijving.includes('t-mobile') || omschrijving.includes('internet')) categorie = 'Telefoon & Internet'
+      else if (omschrijving.includes('boekhou') || omschrijving.includes('accountant') || omschrijving.includes('administratie')) categorie = 'Accountant & Advies'
+      else if (omschrijving.includes('verzekering') || omschrijving.includes('insurance')) categorie = 'Verzekering'
+      else if (omschrijving.includes('eten') || omschrijving.includes('restaurant') || omschrijving.includes('cafe')) categorie = 'Zakelijk eten & drinken'
+      else if (type === 'uitgaand') categorie = 'Verkoop goederen'
+
+      const date = new Date(datum)
+      transactions.push({
+        datum,
+        leverancier: naam,
+        beschrijving: med || naam,
+        categorie,
+        bedrag_excl_btw,
+        btw_percentage,
+        btw_bedrag,
+        bedrag_incl_btw,
+        type,
         kwartaal: getKwartaal(date),
         jaar: date.getFullYear(),
         maand: date.getMonth() + 1,
-      }
-    })
+      })
+    }
 
     return {
       success: true,
       transactions,
-      raw_text: responseText,
+      raw_text: `ING CSV: ${transactions.length} transacties verwerkt`,
       document_type: 'bankafschrift',
     }
   } catch (error) {
