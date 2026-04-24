@@ -42,7 +42,7 @@ Geef ALTIJD een valide JSON response terug in het volgende formaat, NIETS anders
       "datum": "YYYY-MM-DD",
       "leverancier": "naam van leverancier of klant",
       "beschrijving": "korte omschrijving",
-      "categorie": "een van: Omzet|Inkoop goederen|Verzending & Verpakking|Kantoorkosten|Marketing & Reclame|Software & Abonnementen|Telefoonkosten|Verzekering|Accountant & Advies|Huur & Huisvesting|Personeelskosten|Overig",
+      "categorie": "een van: Omzet|Inkoop goederen|Verzending & Verpakking|Kantoorkosten|Marketing & Reclame|Software & Abonnementen|Telefoonkosten|Verzekering|Accountant & Advies|Huur & Huisvesting|Personeelskosten|Interne overboeking|Overig",
       "bedrag_excl_btw": 0.00,
       "btw_percentage": 21,
       "btw_bedrag": 0.00,
@@ -64,7 +64,8 @@ Regels:
 - Telefoon/internet/Odido/KPN → categorie "Telefoonkosten"
 - Verkoop/omzet → categorie "Omzet", type "uitgaand"
 - Bedragen altijd als positieve getallen
-- Als BTW niet vermeld staat maar wel van toepassing is, bereken het zelf`
+- Als BTW niet vermeld staat maar wel van toepassing is, bereken het zelf
+- Overschrijving tussen eigen rekeningen (spaar↔betaal) → categorie "Interne overboeking", btw_percentage 0`
 
 export async function processDocument(
   content: string | Buffer,
@@ -208,6 +209,7 @@ export async function processINGCSV(csvContent: string): Promise<ProcessingResul
       else if (omschrijving.includes('telefoon') || omschrijving.includes('odido') || omschrijving.includes('kpn') || omschrijving.includes('t-mobile') || omschrijving.includes('internet')) categorie = 'Telefoonkosten'
       else if (omschrijving.includes('boekhou') || omschrijving.includes('accountant') || omschrijving.includes('cave')) categorie = 'Accountant & Advies'
       else if (omschrijving.includes('verzekering') || omschrijving.includes('insurance')) categorie = 'Verzekering'
+      else if (omschrijving.includes('spaarrekening') || omschrijving.includes('spaarre') || omschrijving.includes('eigen rekening') || omschrijving.includes('overboeking naar') || omschrijving.includes('interne')) categorie = 'Interne overboeking'
       else if (type === 'uitgaand') categorie = 'Omzet'
 
       const date = new Date(datum)

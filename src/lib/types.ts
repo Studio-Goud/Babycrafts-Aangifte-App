@@ -75,6 +75,7 @@ export const BTW_CATEGORIES = [
   'Accountant & Advies',
   'Huur & Huisvesting',
   'Personeelskosten',
+  'Interne overboeking',
   'Overig',
 ] as const
 

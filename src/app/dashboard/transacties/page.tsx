@@ -75,8 +75,8 @@ export default function TransactiesPage() {
   useEffect(() => { load() }, [kwartaal, filter])
 
   const kwartalen = getAvailableKwartalen()
-  const totaalKosten = transactions.filter(t => t.type === 'inkomend').reduce((s, t) => s + t.bedrag_excl_btw, 0)
-  const totaalOmzet = transactions.filter(t => t.type === 'uitgaand').reduce((s, t) => s + t.bedrag_excl_btw, 0)
+  const totaalKosten = transactions.filter(t => t.type === 'inkomend').reduce((s, t) => s + (t.bedrag_incl_btw ?? t.bedrag_excl_btw), 0)
+  const totaalOmzet = transactions.filter(t => t.type === 'uitgaand').reduce((s, t) => s + (t.bedrag_incl_btw ?? t.bedrag_excl_btw), 0)
 
   const btwPct = parseFloat(form.btw_percentage) / 100
   const bedragIncl = parseFloat(form.bedrag_incl_btw) || 0
@@ -411,15 +411,15 @@ export default function TransactiesPage() {
       {/* Summary */}
       <div className="grid grid-cols-3 gap-2 sm:gap-4 mb-4 sm:mb-6">
         <div className="bg-green-50 border border-green-100 rounded-xl p-4">
-          <p className="text-xs text-green-600 font-medium">Omzet excl. BTW</p>
+          <p className="text-xs text-green-600 font-medium">Omzet incl. BTW</p>
           <p className="text-xl font-bold text-green-700 mt-1">{formatEuro(totaalOmzet)}</p>
         </div>
         <div className="bg-red-50 border border-red-100 rounded-xl p-4">
-          <p className="text-xs text-red-600 font-medium">Kosten excl. BTW</p>
+          <p className="text-xs text-red-600 font-medium">Kosten incl. BTW</p>
           <p className="text-xl font-bold text-red-700 mt-1">{formatEuro(totaalKosten)}</p>
         </div>
         <div className="bg-gray-50 border border-gray-100 rounded-xl p-4">
-          <p className="text-xs text-gray-600 font-medium">Resultaat</p>
+          <p className="text-xs text-gray-600 font-medium">Resultaat incl. BTW</p>
           <p className={`text-xl font-bold mt-1 ${totaalOmzet - totaalKosten >= 0 ? 'text-gray-900' : 'text-red-600'}`}>
             {formatEuro(totaalOmzet - totaalKosten)}
           </p>
