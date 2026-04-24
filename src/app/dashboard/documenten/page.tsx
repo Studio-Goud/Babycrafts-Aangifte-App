@@ -3,7 +3,7 @@
 import { useEffect, useState } from 'react'
 import { Document, DocumentStatus, Transaction } from '@/lib/types'
 import { formatDate, formatEuro } from '@/lib/utils'
-import { FileText, AlertCircle, CheckCircle, Clock, ExternalLink, RefreshCw, Trash2, Search, X, Link2 } from 'lucide-react'
+import { FileText, AlertCircle, CheckCircle, Clock, ExternalLink, RefreshCw, Trash2, Search, X, Link2, CheckSquare } from 'lucide-react'
 
 const sourceLabels: Record<string, string> = { email: 'Email', upload: 'Upload', camera: 'Foto', ing_csv: 'ING CSV' }
 const statusConfig: Record<DocumentStatus, { icon: typeof CheckCircle; color: string; label: string }> = {
@@ -22,6 +22,11 @@ export default function DocumentenPage() {
   const [deleting, setDeleting] = useState<string | null>(null)
   const [confirmDelete, setConfirmDelete] = useState<string | null>(null)
 
+  // Bulk selection
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
+  const [confirmBulkDelete, setConfirmBulkDelete] = useState(false)
+  const [bulkDeleting, setBulkDeleting] = useState(false)
+
   // Link to transaction
   const [linkDocId, setLinkDocId] = useState<string | null>(null)
   const [transactions, setTransactions] = useState<Transaction[]>([])
@@ -34,6 +39,7 @@ export default function DocumentenPage() {
     const res = await fetch(`/api/data/documents?${params}`)
     const json = await res.json()
     setDocs(json.documents || [])
+    setSelectedIds(new Set())
     setLoading(false)
   }
 
@@ -62,6 +68,30 @@ export default function DocumentenPage() {
     setDeleting(null)
   }
 
+  const handleBulkDelete = async () => {
+    setBulkDeleting(true)
+    await Promise.all(
+      Array.from(selectedIds).map(id =>
+        fetch(`/api/data/documents?id=${id}`, { method: 'DELETE' })
+      )
+    )
+    setBulkDeleting(false)
+    setConfirmBulkDelete(false)
+    await load()
+  }
+
+  function toggleAll() {
+    if (filtered.every(d => selectedIds.has(d.id))) {
+      setSelectedIds(prev => { const n = new Set(prev); filtered.forEach(d => n.delete(d.id)); return n })
+    } else {
+      setSelectedIds(prev => new Set([...prev, ...filtered.map(d => d.id)]))
+    }
+  }
+
+  function toggleOne(id: string) {
+    setSelectedIds(prev => { const n = new Set(prev); n.has(id) ? n.delete(id) : n.add(id); return n })
+  }
+
   const linkToTransaction = async (txId: string) => {
     if (!linkDocId) return
     setLinking(true)
@@ -82,6 +112,9 @@ export default function DocumentenPage() {
            !(d.kwartaal || '').toLowerCase().includes(q)) return false
     return true
   })
+
+  const allSelected = filtered.length > 0 && filtered.every(d => selectedIds.has(d.id))
+  const someSelected = selectedIds.size > 0
 
   const txQ = txSearch.trim().toLowerCase()
   const filteredTx = transactions.filter(t =>
@@ -128,6 +161,29 @@ export default function DocumentenPage() {
           </button>
         )}
       </div>
+
+      {/* Bulk delete confirm modal */}
+      {confirmBulkDelete && (
+        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50">
+          <div className="bg-white rounded-xl p-6 max-w-sm w-full mx-4 shadow-xl">
+            <h3 className="text-base font-semibold text-gray-900 mb-2">Documenten verwijderen?</h3>
+            <p className="text-sm text-gray-500 mb-1">
+              Verwijder <strong>{selectedIds.size} documenten</strong> inclusief alle bijbehorende transacties.
+            </p>
+            <p className="text-xs text-red-500 mb-5">Dit kan niet ongedaan worden gemaakt.</p>
+            <div className="flex gap-3">
+              <button onClick={() => setConfirmBulkDelete(false)}
+                className="flex-1 px-4 py-2 border border-gray-200 rounded-lg text-sm font-medium text-gray-600 hover:bg-gray-50">
+                Annuleren
+              </button>
+              <button onClick={handleBulkDelete} disabled={bulkDeleting}
+                className="flex-1 px-4 py-2 bg-red-600 text-white rounded-lg text-sm font-medium hover:bg-red-700 disabled:opacity-50">
+                {bulkDeleting ? 'Bezig...' : 'Verwijderen'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Delete confirm modal */}
       {confirmDelete && (
@@ -212,6 +268,25 @@ export default function DocumentenPage() {
         </div>
       )}
 
+      {/* Bulk action bar */}
+      {someSelected && (
+        <div className="sticky top-4 z-30 mb-3 bg-red-600 text-white rounded-xl px-4 py-3 flex items-center gap-3 shadow-lg">
+          <CheckSquare className="w-4 h-4 opacity-80 shrink-0" />
+          <span className="text-sm font-medium">{selectedIds.size} geselecteerd</span>
+          <div className="flex-1" />
+          <button
+            onClick={() => setConfirmBulkDelete(true)}
+            className="flex items-center gap-1.5 text-xs font-semibold bg-white text-red-600 px-3 py-1.5 rounded-lg hover:bg-red-50 transition-colors"
+          >
+            <Trash2 className="w-3.5 h-3.5" />
+            Verwijderen
+          </button>
+          <button onClick={() => setSelectedIds(new Set())} className="text-white/70 hover:text-white ml-1">
+            <X className="w-4 h-4" />
+          </button>
+        </div>
+      )}
+
       {loading ? (
         <div className="space-y-2">
           {[1,2,3,4,5].map(i => <div key={i} className="h-16 bg-white rounded-xl animate-pulse" />)}
@@ -226,6 +301,10 @@ export default function DocumentenPage() {
           <table className="w-full text-sm">
             <thead className="bg-gray-50 border-b border-gray-100">
               <tr className="text-left text-gray-500">
+                <th className="px-4 py-3 w-8">
+                  <input type="checkbox" checked={allSelected} onChange={toggleAll}
+                    className="rounded border-gray-300 text-red-600 cursor-pointer" />
+                </th>
                 <th className="px-4 py-3 font-medium">Bestand</th>
                 <th className="px-4 py-3 font-medium">Bron</th>
                 <th className="px-4 py-3 font-medium">Type</th>
@@ -240,7 +319,13 @@ export default function DocumentenPage() {
                 const status = statusConfig[doc.status] || statusConfig.pending
                 const StatusIcon = status.icon
                 return (
-                  <tr key={doc.id} className="hover:bg-gray-50 transition-colors">
+                  <tr key={doc.id}
+                    onClick={() => toggleOne(doc.id)}
+                    className={`cursor-pointer transition-colors ${selectedIds.has(doc.id) ? 'bg-red-50 hover:bg-red-100' : 'hover:bg-gray-50'}`}>
+                    <td className="px-4 py-3" onClick={e => e.stopPropagation()}>
+                      <input type="checkbox" checked={selectedIds.has(doc.id)} onChange={() => toggleOne(doc.id)}
+                        className="rounded border-gray-300 text-red-600 cursor-pointer" />
+                    </td>
                     <td className="px-4 py-3">
                       <p className="font-medium text-gray-900 truncate max-w-48">{doc.original_filename}</p>
                       {doc.source_subject && (
