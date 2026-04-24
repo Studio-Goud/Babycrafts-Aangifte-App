@@ -71,15 +71,6 @@ export async function POST(req: NextRequest) {
     if (isCSV) {
       const csvText = buffer.toString('utf-8')
       result = await processINGCSV(csvText)
-    } else if (mimeType === 'application/pdf') {
-      // eslint-disable-next-line @typescript-eslint/no-require-imports
-      const pdfParse = require('pdf-parse')
-      try {
-        const pdfData = await pdfParse(buffer)
-        result = await processDocument(pdfData.text, 'text/plain', filename)
-      } catch {
-        result = await processDocument(buffer, mimeType, filename)
-      }
     } else {
       result = await processDocument(buffer, mimeType, filename)
     }
