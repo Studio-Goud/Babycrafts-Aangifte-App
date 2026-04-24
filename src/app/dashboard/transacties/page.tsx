@@ -3,7 +3,7 @@
 import { useEffect, useState } from 'react'
 import { Transaction, BTW_CATEGORIES } from '@/lib/types'
 import { formatEuro, getCurrentKwartaal, kwartaalLabel } from '@/lib/utils'
-import { ChevronDown, Plus, X, Trash2, CheckSquare } from 'lucide-react'
+import { ChevronDown, Plus, X, Trash2, CheckSquare, Search } from 'lucide-react'
 
 function getAvailableKwartalen() {
   const now = new Date()
@@ -50,6 +50,8 @@ export default function TransactiesPage() {
   const [confirmWis, setConfirmWis] = useState(false)
   const [wisingKwartaal, setWisingKwartaal] = useState(false)
 
+  const [search, setSearch] = useState('')
+
   // Bulk selection state
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
   const [bulkCategorie, setBulkCategorie] = useState('')
@@ -78,14 +80,27 @@ export default function TransactiesPage() {
   const bedragExcl = bedragIncl > 0 ? bedragIncl / (1 + btwPct) : 0
   const btwBedrag = bedragIncl - bedragExcl
 
-  const allVisible = transactions.length > 0 && transactions.every(t => selectedIds.has(t.id))
+  const q = search.trim().toLowerCase()
+  const filtered = q
+    ? transactions.filter(t =>
+        (t.leverancier || '').toLowerCase().includes(q) ||
+        (t.beschrijving || '').toLowerCase().includes(q) ||
+        (t.categorie || '').toLowerCase().includes(q)
+      )
+    : transactions
+
+  const allVisible = filtered.length > 0 && filtered.every(t => selectedIds.has(t.id))
   const someSelected = selectedIds.size > 0
 
   function toggleAll() {
     if (allVisible) {
-      setSelectedIds(new Set())
+      setSelectedIds(prev => {
+        const next = new Set(prev)
+        filtered.forEach(t => next.delete(t.id))
+        return next
+      })
     } else {
-      setSelectedIds(new Set(transactions.map(t => t.id)))
+      setSelectedIds(prev => new Set([...prev, ...filtered.map(t => t.id)]))
     }
   }
 
@@ -407,19 +422,42 @@ export default function TransactiesPage() {
         </div>
       </div>
 
-      {/* Filter */}
-      <div className="flex gap-2 mb-4">
-        {(['all', 'inkomend', 'uitgaand'] as const).map(f => (
-          <button
-            key={f}
-            onClick={() => setFilter(f)}
-            className={`px-3 py-1.5 text-xs rounded-full font-medium transition-colors ${
-              filter === f ? 'bg-blue-600 text-white' : 'bg-white border border-gray-200 text-gray-600 hover:bg-gray-50'
-            }`}
-          >
-            {f === 'all' ? 'Alle' : f === 'inkomend' ? 'Kosten' : 'Omzet'}
-          </button>
-        ))}
+      {/* Filter + Search */}
+      <div className="flex items-center gap-3 mb-4">
+        <div className="flex gap-2">
+          {(['all', 'inkomend', 'uitgaand'] as const).map(f => (
+            <button
+              key={f}
+              onClick={() => setFilter(f)}
+              className={`px-3 py-1.5 text-xs rounded-full font-medium transition-colors ${
+                filter === f ? 'bg-blue-600 text-white' : 'bg-white border border-gray-200 text-gray-600 hover:bg-gray-50'
+              }`}
+            >
+              {f === 'all' ? 'Alle' : f === 'inkomend' ? 'Kosten' : 'Omzet'}
+            </button>
+          ))}
+        </div>
+        <div className="relative flex-1 max-w-sm ml-auto">
+          <Search className="absolute left-3 top-2 w-4 h-4 text-gray-400 pointer-events-none" />
+          <input
+            type="text"
+            value={search}
+            onChange={e => setSearch(e.target.value)}
+            placeholder="Zoek op leverancier, beschrijving, categorie…"
+            className="w-full border border-gray-200 rounded-lg pl-9 pr-8 py-1.5 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-blue-500/30"
+          />
+          {search && (
+            <button
+              onClick={() => setSearch('')}
+              className="absolute right-2.5 top-2 text-gray-400 hover:text-gray-600"
+            >
+              <X className="w-4 h-4" />
+            </button>
+          )}
+        </div>
+        {q && (
+          <span className="text-xs text-gray-400 whitespace-nowrap">{filtered.length} resultaat{filtered.length !== 1 ? 'en' : ''}</span>
+        )}
       </div>
 
       {/* Bulk action bar */}
@@ -478,9 +516,9 @@ export default function TransactiesPage() {
         <div className="space-y-2">
           {[1, 2, 3, 4, 5].map(i => <div key={i} className="h-12 bg-white rounded animate-pulse" />)}
         </div>
-      ) : transactions.length === 0 ? (
+      ) : filtered.length === 0 ? (
         <div className="bg-white rounded-xl border border-gray-200 p-12 text-center text-gray-400">
-          <p>Geen transacties in dit kwartaal</p>
+          <p>{q ? `Geen resultaten voor "${search}"` : 'Geen transacties in dit kwartaal'}</p>
         </div>
       ) : (
         <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
@@ -506,7 +544,7 @@ export default function TransactiesPage() {
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-50">
-              {transactions.map(t => {
+              {filtered.map(t => {
                 const selected = selectedIds.has(t.id)
                 return (
                   <tr
