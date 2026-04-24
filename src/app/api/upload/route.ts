@@ -4,6 +4,14 @@ import { processDocument, processINGCSV } from '@/lib/claude-processor'
 
 export const maxDuration = 60
 
+async function ensureBucket(supabase: ReturnType<typeof createServiceClient>) {
+  const { data: buckets } = await supabase.storage.listBuckets()
+  const exists = (buckets || []).some((b: { name: string }) => b.name === 'documents')
+  if (!exists) {
+    await supabase.storage.createBucket('documents', { public: true, fileSizeLimit: 52428800 })
+  }
+}
+
 export async function POST(req: NextRequest) {
   try {
     const formData = await req.formData()
@@ -19,6 +27,9 @@ export async function POST(req: NextRequest) {
     const mimeType = file.type || 'application/octet-stream'
     const filename = file.name
     const isCSV = filename.toLowerCase().endsWith('.csv') || mimeType === 'text/csv'
+
+    // Ensure bucket exists
+    await ensureBucket(supabase)
 
     // Upload to Supabase Storage
     const safeFilename = filename.replace(/[^a-zA-Z0-9._-]/g, '_')
@@ -48,7 +59,7 @@ export async function POST(req: NextRequest) {
       .single()
 
     if (docError || !doc) {
-      return NextResponse.json({ error: 'Document opslaan mislukt' }, { status: 500 })
+      return NextResponse.json({ error: `Document opslaan mislukt: ${docError?.message}` }, { status: 500 })
     }
 
     // Process with Claude
@@ -57,7 +68,6 @@ export async function POST(req: NextRequest) {
       const csvText = buffer.toString('utf-8')
       result = await processINGCSV(csvText)
     } else if (mimeType === 'application/pdf') {
-      // For PDFs, extract text first
       // eslint-disable-next-line @typescript-eslint/no-require-imports
       const pdfParse = require('pdf-parse')
       try {
@@ -77,7 +87,7 @@ export async function POST(req: NextRequest) {
       await supabase.from('documents').update({
         status: 'processed',
         raw_text: result.raw_text,
-        file_type: result.document_type as any,
+        file_type: result.document_type as never,
         processed_at: new Date().toISOString(),
         kwartaal: result.transactions[0]?.kwartaal,
       }).eq('id', doc.id)

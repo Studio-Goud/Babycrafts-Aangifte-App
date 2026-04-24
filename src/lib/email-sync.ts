@@ -56,6 +56,14 @@ interface SyncOptions {
   force?: boolean
 }
 
+async function ensureBucket(supabase: ReturnType<typeof createServiceClient>) {
+  const { data: buckets } = await supabase.storage.listBuckets()
+  const exists = (buckets || []).some((b: { name: string }) => b.name === 'documents')
+  if (!exists) {
+    await supabase.storage.createBucket('documents', { public: true, fileSizeLimit: 52428800 })
+  }
+}
+
 export async function syncEmails(options: SyncOptions = {}): Promise<{
   emails_found: number
   documents_created: number
@@ -65,6 +73,8 @@ export async function syncEmails(options: SyncOptions = {}): Promise<{
   let emails_found = 0
   let documents_created = 0
   const isPeriodSync = !!(options.from || options.to)
+
+  await ensureBucket(supabase)
 
   const { data: settings } = await supabase
     .from('settings').select('value').eq('key', 'last_email_uid').single()
