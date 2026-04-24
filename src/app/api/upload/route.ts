@@ -21,7 +21,8 @@ export async function POST(req: NextRequest) {
     const isCSV = filename.toLowerCase().endsWith('.csv') || mimeType === 'text/csv'
 
     // Upload to Supabase Storage
-    const storageKey = `uploads/${Date.now()}_${filename}`
+    const safeFilename = filename.replace(/[^a-zA-Z0-9._-]/g, '_')
+    const storageKey = `uploads/${Date.now()}_${safeFilename}`
     const { error: storageError } = await supabase.storage
       .from('documents')
       .upload(storageKey, buffer, { contentType: mimeType })
