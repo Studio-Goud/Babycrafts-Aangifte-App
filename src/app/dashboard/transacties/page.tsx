@@ -52,10 +52,8 @@ export default function TransactiesPage() {
 
   const [search, setSearch] = useState('')
 
-  // Bulk selection state
-  const [toonAlle, setToonAlle] = useState(false)
+  const [tab, setTab] = useState<'te-boeken' | 'geboekt'>('te-boeken')
 
-  // Bulk selection state
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
   const [bulkCategorie, setBulkCategorie] = useState('')
   const [bulkBtw, setBulkBtw] = useState('')
@@ -84,14 +82,15 @@ export default function TransactiesPage() {
   const btwBedrag = bedragIncl - bedragExcl
 
   const q = search.trim().toLowerCase()
-  const ingeboektCount = transactions.filter(t => t.categorie).length
-  const filtered = transactions
-    .filter(t => toonAlle || !t.categorie)
-    .filter(t => !q || (
-      (t.leverancier || '').toLowerCase().includes(q) ||
-      (t.beschrijving || '').toLowerCase().includes(q) ||
-      (t.categorie || '').toLowerCase().includes(q)
-    ))
+  const teBoeken = transactions.filter(t => !t.categorie)
+  const geboekt  = transactions.filter(t =>  t.categorie)
+  const baseList = tab === 'te-boeken' ? teBoeken : geboekt
+  const filtered = baseList.filter(t =>
+    !q ||
+    (t.leverancier || '').toLowerCase().includes(q) ||
+    (t.beschrijving || '').toLowerCase().includes(q) ||
+    (t.categorie   || '').toLowerCase().includes(q)
+  )
 
   const allVisible = filtered.length > 0 && filtered.every(t => selectedIds.has(t.id))
   const someSelected = selectedIds.size > 0
@@ -426,31 +425,66 @@ export default function TransactiesPage() {
         </div>
       </div>
 
-      {/* Filter + Search */}
-      <div className="flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-3 mb-4">
-        <div className="flex gap-1.5 flex-wrap">
+      {/* Tabs */}
+      <div className="flex items-center gap-1 mb-4 border-b border-gray-200">
+        <button
+          onClick={() => { setTab('te-boeken'); setSelectedIds(new Set()) }}
+          className={`px-4 py-2.5 text-sm font-medium border-b-2 transition-colors -mb-px ${
+            tab === 'te-boeken'
+              ? 'border-blue-600 text-blue-600'
+              : 'border-transparent text-gray-500 hover:text-gray-700'
+          }`}
+        >
+          Te boeken
+          {teBoeken.length > 0 && (
+            <span className={`ml-2 text-xs px-1.5 py-0.5 rounded-full ${
+              tab === 'te-boeken' ? 'bg-blue-100 text-blue-600' : 'bg-gray-100 text-gray-500'
+            }`}>{teBoeken.length}</span>
+          )}
+        </button>
+        <button
+          onClick={() => { setTab('geboekt'); setSelectedIds(new Set()) }}
+          className={`px-4 py-2.5 text-sm font-medium border-b-2 transition-colors -mb-px ${
+            tab === 'geboekt'
+              ? 'border-blue-600 text-blue-600'
+              : 'border-transparent text-gray-500 hover:text-gray-700'
+          }`}
+        >
+          Geboekt
+          {geboekt.length > 0 && (
+            <span className={`ml-2 text-xs px-1.5 py-0.5 rounded-full ${
+              tab === 'geboekt' ? 'bg-blue-100 text-blue-600' : 'bg-gray-100 text-gray-500'
+            }`}>{geboekt.length}</span>
+          )}
+        </button>
+
+        {/* Filter pills + search pushed right */}
+        <div className="ml-auto flex items-center gap-2 pb-1">
+          <div className="hidden sm:flex gap-1.5">
+            {(['all', 'inkomend', 'uitgaand'] as const).map(f => (
+              <button key={f} onClick={() => setFilter(f)}
+                className={`px-2.5 py-1 text-xs rounded-full font-medium transition-colors ${
+                  filter === f ? 'bg-blue-600 text-white' : 'bg-white border border-gray-200 text-gray-600 hover:bg-gray-50'
+                }`}>
+                {f === 'all' ? 'Alle' : f === 'inkomend' ? 'Kosten' : 'Omzet'}
+              </button>
+            ))}
+          </div>
+        </div>
+      </div>
+
+      {/* Filter pills on mobile + search */}
+      <div className="flex flex-col sm:flex-row sm:items-center gap-2 mb-4">
+        <div className="flex sm:hidden gap-1.5 flex-wrap">
           {(['all', 'inkomend', 'uitgaand'] as const).map(f => (
-            <button
-              key={f}
-              onClick={() => setFilter(f)}
+            <button key={f} onClick={() => setFilter(f)}
               className={`px-3 py-1.5 text-xs rounded-full font-medium transition-colors ${
                 filter === f ? 'bg-blue-600 text-white' : 'bg-white border border-gray-200 text-gray-600 hover:bg-gray-50'
-              }`}
-            >
+              }`}>
               {f === 'all' ? 'Alle' : f === 'inkomend' ? 'Kosten' : 'Omzet'}
             </button>
           ))}
         </div>
-        <button
-          onClick={() => setToonAlle(v => !v)}
-          className={`px-3 py-1.5 text-xs rounded-full font-medium border transition-colors ${
-            toonAlle
-              ? 'bg-gray-700 text-white border-gray-700'
-              : 'bg-white border-gray-200 text-gray-600 hover:bg-gray-50'
-          }`}
-        >
-          {toonAlle ? 'Verberg ingeboekt' : `Toon ingeboekt${ingeboektCount > 0 ? ` (${ingeboektCount})` : ''}`}
-        </button>
         <div className="relative w-full sm:max-w-sm sm:ml-auto">
           <Search className="absolute left-3 top-2 w-4 h-4 text-gray-400 pointer-events-none" />
           <input
@@ -532,7 +566,7 @@ export default function TransactiesPage() {
         </div>
       ) : filtered.length === 0 ? (
         <div className="bg-white rounded-xl border border-gray-200 p-12 text-center text-gray-400">
-          <p>{q ? `Geen resultaten voor "${search}"` : toonAlle ? 'Geen transacties in dit kwartaal' : 'Alle transacties zijn ingeboekt 🎉'}</p>
+          <p>{q ? `Geen resultaten voor "${search}"` : tab === 'te-boeken' ? 'Alles is ingeboekt 🎉' : 'Nog niets geboekt in dit kwartaal'}</p>
         </div>
       ) : (
         <>
