@@ -3,7 +3,7 @@
 import { useEffect, useState } from 'react'
 import { Transaction, BTW_CATEGORIES } from '@/lib/types'
 import { formatEuro, getCurrentKwartaal, kwartaalLabel } from '@/lib/utils'
-import { ChevronDown, Plus, X, Trash2 } from 'lucide-react'
+import { ChevronDown, Plus, X, Trash2, CheckSquare } from 'lucide-react'
 
 function getAvailableKwartalen() {
   const now = new Date()
@@ -50,12 +50,20 @@ export default function TransactiesPage() {
   const [confirmWis, setConfirmWis] = useState(false)
   const [wisingKwartaal, setWisingKwartaal] = useState(false)
 
+  // Bulk selection state
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
+  const [bulkCategorie, setBulkCategorie] = useState('')
+  const [bulkBtw, setBulkBtw] = useState('')
+  const [bulkApplying, setBulkApplying] = useState(false)
+  const [confirmBulkDelete, setConfirmBulkDelete] = useState(false)
+
   async function load() {
     setLoading(true)
     const params = new URLSearchParams({ kwartaal, type: filter })
     const res = await fetch(`/api/data/transactions?${params}`)
     const json = await res.json()
     setTransactions(json.transactions || [])
+    setSelectedIds(new Set())
     setLoading(false)
   }
 
@@ -65,11 +73,30 @@ export default function TransactiesPage() {
   const totaalKosten = transactions.filter(t => t.type === 'inkomend').reduce((s, t) => s + t.bedrag_excl_btw, 0)
   const totaalOmzet = transactions.filter(t => t.type === 'uitgaand').reduce((s, t) => s + t.bedrag_excl_btw, 0)
 
-  // Auto-calculate derived values
   const btwPct = parseFloat(form.btw_percentage) / 100
   const bedragIncl = parseFloat(form.bedrag_incl_btw) || 0
   const bedragExcl = bedragIncl > 0 ? bedragIncl / (1 + btwPct) : 0
   const btwBedrag = bedragIncl - bedragExcl
+
+  const allVisible = transactions.length > 0 && transactions.every(t => selectedIds.has(t.id))
+  const someSelected = selectedIds.size > 0
+
+  function toggleAll() {
+    if (allVisible) {
+      setSelectedIds(new Set())
+    } else {
+      setSelectedIds(new Set(transactions.map(t => t.id)))
+    }
+  }
+
+  function toggleOne(id: string) {
+    setSelectedIds(prev => {
+      const next = new Set(prev)
+      if (next.has(id)) next.delete(id)
+      else next.add(id)
+      return next
+    })
+  }
 
   const handleWisKwartaal = async () => {
     setWisingKwartaal(true)
@@ -108,6 +135,37 @@ export default function TransactiesPage() {
       await load()
     }
     setSaving(false)
+  }
+
+  const handleBulkApply = async () => {
+    if (!bulkCategorie && !bulkBtw) return
+    setBulkApplying(true)
+    const body: { ids: string[]; categorie?: string; btw_percentage?: number } = {
+      ids: Array.from(selectedIds),
+    }
+    if (bulkCategorie) body.categorie = bulkCategorie
+    if (bulkBtw) body.btw_percentage = parseInt(bulkBtw)
+    await fetch('/api/data/transactions/bulk', {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    })
+    setBulkCategorie('')
+    setBulkBtw('')
+    setBulkApplying(false)
+    await load()
+  }
+
+  const handleBulkDelete = async () => {
+    setBulkApplying(true)
+    await fetch('/api/data/transactions/bulk', {
+      method: 'DELETE',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ids: Array.from(selectedIds) }),
+    })
+    setConfirmBulkDelete(false)
+    setBulkApplying(false)
+    await load()
   }
 
   return (
@@ -161,7 +219,6 @@ export default function TransactiesPage() {
             </div>
 
             <div className="space-y-4">
-              {/* Type */}
               <div>
                 <label className="block text-xs font-medium text-gray-600 mb-1.5">Type *</label>
                 <div className="flex gap-2">
@@ -181,7 +238,6 @@ export default function TransactiesPage() {
                 </div>
               </div>
 
-              {/* Datum + Leverancier */}
               <div className="grid grid-cols-2 gap-3">
                 <div>
                   <label className="block text-xs font-medium text-gray-600 mb-1.5">Datum *</label>
@@ -204,7 +260,6 @@ export default function TransactiesPage() {
                 </div>
               </div>
 
-              {/* Beschrijving */}
               <div>
                 <label className="block text-xs font-medium text-gray-600 mb-1.5">Beschrijving</label>
                 <input
@@ -216,7 +271,6 @@ export default function TransactiesPage() {
                 />
               </div>
 
-              {/* Categorie */}
               <div>
                 <label className="block text-xs font-medium text-gray-600 mb-1.5">Categorie</label>
                 <select
@@ -229,7 +283,6 @@ export default function TransactiesPage() {
                 </select>
               </div>
 
-              {/* Bedrag + BTW */}
               <div className="grid grid-cols-2 gap-3">
                 <div>
                   <label className="block text-xs font-medium text-gray-600 mb-1.5">Bedrag incl. BTW *</label>
@@ -260,7 +313,6 @@ export default function TransactiesPage() {
                 </div>
               </div>
 
-              {/* Calculated values */}
               {bedragIncl > 0 && (
                 <div className="bg-gray-50 rounded-lg px-4 py-3 text-xs text-gray-600 flex gap-6">
                   <span>Excl. BTW: <strong>{formatEuro(bedragExcl)}</strong></span>
@@ -315,6 +367,28 @@ export default function TransactiesPage() {
         </div>
       )}
 
+      {/* Bulk delete confirm modal */}
+      {confirmBulkDelete && (
+        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50">
+          <div className="bg-white rounded-xl p-6 max-w-sm w-full mx-4 shadow-xl">
+            <h3 className="text-base font-semibold text-gray-900 mb-2">Transacties verwijderen?</h3>
+            <p className="text-sm text-gray-500 mb-5">
+              Verwijder <strong>{selectedIds.size} geselecteerde transacties</strong>. Dit kan niet ongedaan worden gemaakt.
+            </p>
+            <div className="flex gap-3">
+              <button onClick={() => setConfirmBulkDelete(false)}
+                className="flex-1 px-4 py-2 border border-gray-200 rounded-lg text-sm font-medium text-gray-600 hover:bg-gray-50">
+                Annuleren
+              </button>
+              <button onClick={handleBulkDelete} disabled={bulkApplying}
+                className="flex-1 px-4 py-2 bg-red-600 text-white rounded-lg text-sm font-medium hover:bg-red-700 disabled:opacity-50">
+                {bulkApplying ? 'Bezig...' : 'Verwijderen'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Summary */}
       <div className="grid grid-cols-3 gap-4 mb-6">
         <div className="bg-green-50 border border-green-100 rounded-xl p-4">
@@ -348,6 +422,57 @@ export default function TransactiesPage() {
         ))}
       </div>
 
+      {/* Bulk action bar */}
+      {someSelected && (
+        <div className="sticky top-4 z-30 mb-3 bg-blue-600 text-white rounded-xl px-4 py-3 flex items-center gap-3 shadow-lg flex-wrap">
+          <span className="text-sm font-medium mr-1">
+            <CheckSquare className="w-4 h-4 inline mr-1.5 opacity-80" />
+            {selectedIds.size} geselecteerd
+          </span>
+          <div className="h-4 w-px bg-white/30" />
+          <select
+            value={bulkCategorie}
+            onChange={e => setBulkCategorie(e.target.value)}
+            className="bg-white/15 text-white text-xs rounded-lg px-2.5 py-1.5 border border-white/30 min-w-36"
+          >
+            <option value="">Categorie…</option>
+            {BTW_CATEGORIES.map(c => <option key={c} value={c} className="text-gray-900">{c}</option>)}
+          </select>
+          <select
+            value={bulkBtw}
+            onChange={e => setBulkBtw(e.target.value)}
+            className="bg-white/15 text-white text-xs rounded-lg px-2.5 py-1.5 border border-white/30"
+          >
+            <option value="">BTW tarief…</option>
+            <option value="0" className="text-gray-900">0%</option>
+            <option value="9" className="text-gray-900">9%</option>
+            <option value="21" className="text-gray-900">21%</option>
+          </select>
+          <button
+            onClick={handleBulkApply}
+            disabled={bulkApplying || (!bulkCategorie && !bulkBtw)}
+            className="bg-white text-blue-600 text-xs font-semibold px-3 py-1.5 rounded-lg hover:bg-blue-50 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+          >
+            {bulkApplying ? 'Bezig...' : 'Toepassen'}
+          </button>
+          <div className="flex-1" />
+          <button
+            onClick={() => setConfirmBulkDelete(true)}
+            className="flex items-center gap-1.5 text-xs font-medium bg-red-500 hover:bg-red-400 px-3 py-1.5 rounded-lg transition-colors"
+          >
+            <Trash2 className="w-3.5 h-3.5" />
+            Verwijderen
+          </button>
+          <button
+            onClick={() => setSelectedIds(new Set())}
+            className="text-white/70 hover:text-white ml-1"
+            title="Selectie opheffen"
+          >
+            <X className="w-4 h-4" />
+          </button>
+        </div>
+      )}
+
       {/* Table */}
       {loading ? (
         <div className="space-y-2">
@@ -362,6 +487,14 @@ export default function TransactiesPage() {
           <table className="w-full text-sm">
             <thead className="bg-gray-50 border-b border-gray-100">
               <tr className="text-left text-gray-500">
+                <th className="px-4 py-3 w-8">
+                  <input
+                    type="checkbox"
+                    checked={allVisible}
+                    onChange={toggleAll}
+                    className="rounded border-gray-300 text-blue-600 cursor-pointer"
+                  />
+                </th>
                 <th className="px-4 py-3 font-medium">Datum</th>
                 <th className="px-4 py-3 font-medium">Leverancier</th>
                 <th className="px-4 py-3 font-medium">Beschrijving</th>
@@ -373,24 +506,39 @@ export default function TransactiesPage() {
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-50">
-              {transactions.map(t => (
-                <tr key={t.id} className="hover:bg-gray-50 transition-colors">
-                  <td className="px-4 py-3 text-gray-600">{t.datum}</td>
-                  <td className="px-4 py-3 font-medium text-gray-900 max-w-32 truncate">{t.leverancier || '—'}</td>
-                  <td className="px-4 py-3 text-gray-500 max-w-40 truncate">{t.beschrijving || '—'}</td>
-                  <td className="px-4 py-3 text-gray-500 text-xs">{t.categorie || '—'}</td>
-                  <td className="px-4 py-3 text-right text-gray-700">{formatEuro(t.bedrag_excl_btw)}</td>
-                  <td className="px-4 py-3 text-right text-gray-400 text-xs">{t.btw_percentage || 0}%</td>
-                  <td className="px-4 py-3 text-right font-medium text-gray-900">{formatEuro(t.bedrag_incl_btw || 0)}</td>
-                  <td className="px-4 py-3">
-                    <span className={`text-xs px-2 py-0.5 rounded-full ${
-                      t.type === 'inkomend' ? 'bg-red-50 text-red-600' : 'bg-green-50 text-green-600'
-                    }`}>
-                      {t.type === 'inkomend' ? 'Kosten' : 'Omzet'}
-                    </span>
-                  </td>
-                </tr>
-              ))}
+              {transactions.map(t => {
+                const selected = selectedIds.has(t.id)
+                return (
+                  <tr
+                    key={t.id}
+                    onClick={() => toggleOne(t.id)}
+                    className={`cursor-pointer transition-colors ${selected ? 'bg-blue-50 hover:bg-blue-100' : 'hover:bg-gray-50'}`}
+                  >
+                    <td className="px-4 py-3" onClick={e => e.stopPropagation()}>
+                      <input
+                        type="checkbox"
+                        checked={selected}
+                        onChange={() => toggleOne(t.id)}
+                        className="rounded border-gray-300 text-blue-600 cursor-pointer"
+                      />
+                    </td>
+                    <td className="px-4 py-3 text-gray-600">{t.datum}</td>
+                    <td className="px-4 py-3 font-medium text-gray-900 max-w-32 truncate">{t.leverancier || '—'}</td>
+                    <td className="px-4 py-3 text-gray-500 max-w-40 truncate">{t.beschrijving || '—'}</td>
+                    <td className="px-4 py-3 text-gray-500 text-xs">{t.categorie || '—'}</td>
+                    <td className="px-4 py-3 text-right text-gray-700">{formatEuro(t.bedrag_excl_btw)}</td>
+                    <td className="px-4 py-3 text-right text-gray-400 text-xs">{t.btw_percentage || 0}%</td>
+                    <td className="px-4 py-3 text-right font-medium text-gray-900">{formatEuro(t.bedrag_incl_btw || 0)}</td>
+                    <td className="px-4 py-3">
+                      <span className={`text-xs px-2 py-0.5 rounded-full ${
+                        t.type === 'inkomend' ? 'bg-red-50 text-red-600' : 'bg-green-50 text-green-600'
+                      }`}>
+                        {t.type === 'inkomend' ? 'Kosten' : 'Omzet'}
+                      </span>
+                    </td>
+                  </tr>
+                )
+              })}
             </tbody>
           </table>
         </div>

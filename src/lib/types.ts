@@ -64,14 +64,13 @@ export interface EmailSyncLog {
 }
 
 export const BTW_CATEGORIES = [
+  'Omzet',
   'Inkoop goederen',
-  'Verkoop goederen',
+  'Verzending & Verpakking',
   'Kantoorkosten',
-  'Transport & Logistiek',
   'Marketing & Reclame',
   'Software & Abonnementen',
-  'Zakelijk eten & drinken',
-  'Telefoon & Internet',
+  'Telefoonkosten',
   'Verzekering',
   'Accountant & Advies',
   'Huur & Huisvesting',
