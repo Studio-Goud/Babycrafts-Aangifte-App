@@ -6,7 +6,6 @@ import {
   LayoutDashboard,
   Upload,
   FileText,
-  Mail,
   BarChart3,
   Settings,
   Receipt,
@@ -21,7 +20,6 @@ const nav = [
   { href: '/dashboard/documenten', label: 'Documenten', icon: FileText },
   { href: '/dashboard/transacties', label: 'Transacties', icon: Receipt },
   { href: '/dashboard/koppelen', label: 'Koppelen', icon: Link2 },
-  { href: '/dashboard/email', label: 'Email Sync', icon: Mail },
   { href: '/dashboard/btw', label: 'BTW Aangifte', icon: BarChart3 },
   { href: '/dashboard/instellingen', label: 'Instellingen', icon: Settings },
 ]

@@ -26,15 +26,26 @@ export async function DELETE(req: NextRequest) {
 
 export async function GET(req: NextRequest) {
   const { searchParams } = req.nextUrl
-  const kwartaal = searchParams.get('kwartaal') || getKwartaal(new Date())
+  const kwartaal = searchParams.get('kwartaal')
+  const jaar = searchParams.get('jaar')
   const type = searchParams.get('type') || 'all'
 
   const supabase = createServiceClient()
   let query = supabase
     .from('transactions')
     .select('*')
-    .eq('kwartaal', kwartaal)
     .order('datum', { ascending: false })
+
+  if (jaar) {
+    // filter all quarters in the year
+    query = query.eq('jaar', parseInt(jaar))
+  } else if (kwartaal && kwartaal !== 'all') {
+    query = query.eq('kwartaal', kwartaal)
+  } else if (!kwartaal) {
+    // default: current quarter
+    query = query.eq('kwartaal', getKwartaal(new Date()))
+  }
+  // kwartaal=all → no quarter filter → returns everything
 
   if (type !== 'all') {
     query = query.eq('type', type)

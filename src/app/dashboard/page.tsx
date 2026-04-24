@@ -1,92 +1,147 @@
-import { createServiceClient } from '@/lib/supabase/server'
-import { formatEuro, getCurrentKwartaal, kwartaalLabel } from '@/lib/utils'
-import { BTWSummary, Transaction } from '@/lib/types'
-import DashboardStats from '@/components/DashboardStats'
-import RecentDocuments from '@/components/RecentDocuments'
+'use client'
 
-async function getBTWSummary(kwartaal: string): Promise<BTWSummary> {
-  const supabase = createServiceClient()
-  const { data } = await supabase
-    .from('transactions')
-    .select('*')
-    .eq('kwartaal', kwartaal)
+import { useEffect, useState } from 'react'
+import { formatEuro, getCurrentKwartaal } from '@/lib/utils'
+import { ChevronDown } from 'lucide-react'
 
-  const transactions = (data || []) as Transaction[]
-  const inkomend = transactions.filter(t => t.type === 'inkomend')
-  const uitgaand = transactions.filter(t => t.type === 'uitgaand')
-
-  const kosten_excl_btw = inkomend.reduce((s, t) => s + (t.bedrag_excl_btw || 0), 0)
-  const btw_betaald = inkomend.reduce((s, t) => s + (t.btw_bedrag || 0), 0)
-  const omzet_excl_btw = uitgaand.reduce((s, t) => s + (t.bedrag_excl_btw || 0), 0)
-  const btw_ontvangen = uitgaand.reduce((s, t) => s + (t.btw_bedrag || 0), 0)
-
-  return {
-    kwartaal,
-    omzet_excl_btw,
-    btw_ontvangen,
-    kosten_excl_btw,
-    btw_betaald,
-    te_betalen_btw: btw_ontvangen - btw_betaald,
-    transacties_count: transactions.length,
-  }
+function getYears() {
+  const year = new Date().getFullYear()
+  return [year, year - 1, year - 2]
 }
 
-async function getStats() {
-  const supabase = createServiceClient()
-  const [{ count: docs }, { count: pending }, { data: lastSync }] = await Promise.all([
-    supabase.from('documents').select('*', { count: 'exact', head: true }),
-    supabase.from('documents').select('*', { count: 'exact', head: true }).eq('status', 'pending'),
-    supabase.from('email_sync_log').select('synced_at, documents_created').order('synced_at', { ascending: false }).limit(1),
-  ])
-  return {
-    total_documents: docs || 0,
-    pending_documents: pending || 0,
-    last_sync: lastSync?.[0]?.synced_at,
-    last_sync_count: lastSync?.[0]?.documents_created || 0,
-  }
+function getAvailableKwartalen(year: number) {
+  const now = new Date()
+  const curQ = Math.ceil((now.getMonth() + 1) / 3)
+  const quarters = ['Q1', 'Q2', 'Q3', 'Q4'].filter(q => {
+    if (year < now.getFullYear()) return true
+    return parseInt(q[1]) <= curQ
+  })
+  return quarters
 }
 
-export default async function DashboardPage() {
-  const kwartaal = getCurrentKwartaal()
-  const [summary, stats] = await Promise.all([getBTWSummary(kwartaal), getStats()])
+interface Stats {
+  doc_count: number
+  pending_count: number
+  transactions_count: number
+  omzet: number
+  kosten: number
+  btw_ontvangen: number
+  btw_betaald: number
+  btw_te_betalen: number
+}
+
+export default function DashboardPage() {
+  const curKwartaal = getCurrentKwartaal()
+  const [jaar, setJaar] = useState(new Date().getFullYear())
+  const [kwartaal, setKwartaal] = useState<string>(curKwartaal.split('-')[1]) // e.g. "Q2"
+  const [modeJaar, setModeJaar] = useState(false)
+  const [stats, setStats] = useState<Stats | null>(null)
+  const [loading, setLoading] = useState(true)
+
+  const years = getYears()
+  const quarters = getAvailableKwartalen(jaar)
+
+  useEffect(() => {
+    setLoading(true)
+    const params = new URLSearchParams(
+      modeJaar ? { jaar: String(jaar) } : { kwartaal: `${jaar}-${kwartaal}` }
+    )
+    fetch(`/api/data/dashboard-stats?${params}`)
+      .then(r => r.json())
+      .then(d => { setStats(d); setLoading(false) })
+  }, [jaar, kwartaal, modeJaar])
+
+  const periodLabel = modeJaar ? `Heel ${jaar}` : `${kwartaal} ${jaar}`
 
   return (
     <div className="p-6 max-w-7xl mx-auto">
-      <div className="mb-6">
-        <h1 className="text-2xl font-bold text-gray-900">Dashboard</h1>
-        <p className="text-gray-500 mt-1">Huidig kwartaal: {kwartaalLabel(kwartaal)}</p>
+      <div className="flex items-start justify-between mb-6">
+        <div>
+          <h1 className="text-2xl font-bold text-gray-900">Dashboard</h1>
+          <p className="text-gray-500 mt-1">{periodLabel}</p>
+        </div>
+
+        {/* Period selector */}
+        <div className="flex items-center gap-2">
+          {/* Year */}
+          <div className="relative">
+            <select
+              value={jaar}
+              onChange={e => setJaar(parseInt(e.target.value))}
+              className="appearance-none bg-white border border-gray-200 rounded-lg pl-3 pr-8 py-2 text-sm font-medium text-gray-700 cursor-pointer"
+            >
+              {years.map(y => <option key={y} value={y}>{y}</option>)}
+            </select>
+            <ChevronDown className="absolute right-2 top-2.5 w-4 h-4 text-gray-400 pointer-events-none" />
+          </div>
+
+          {/* Quarter / Heel jaar */}
+          <div className="flex rounded-lg border border-gray-200 overflow-hidden bg-white">
+            <button
+              onClick={() => setModeJaar(true)}
+              className={`px-3 py-2 text-xs font-medium transition-colors ${
+                modeJaar ? 'bg-blue-600 text-white' : 'text-gray-600 hover:bg-gray-50'
+              }`}
+            >
+              Heel jaar
+            </button>
+            {quarters.map(q => (
+              <button
+                key={q}
+                onClick={() => { setModeJaar(false); setKwartaal(q) }}
+                className={`px-3 py-2 text-xs font-medium border-l border-gray-200 transition-colors ${
+                  !modeJaar && kwartaal === q ? 'bg-blue-600 text-white' : 'text-gray-600 hover:bg-gray-50'
+                }`}
+              >
+                {q}
+              </button>
+            ))}
+          </div>
+        </div>
       </div>
 
       {/* BTW Summary Cards */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
         <SummaryCard
           title="Omzet (excl. BTW)"
-          value={formatEuro(summary.omzet_excl_btw)}
+          value={loading ? '…' : formatEuro(stats?.omzet ?? 0)}
           color="green"
-          subtitle={`BTW ontvangen: ${formatEuro(summary.btw_ontvangen)}`}
+          subtitle={loading ? '' : `BTW ontvangen: ${formatEuro(stats?.btw_ontvangen ?? 0)}`}
         />
         <SummaryCard
           title="Kosten (excl. BTW)"
-          value={formatEuro(summary.kosten_excl_btw)}
+          value={loading ? '…' : formatEuro(stats?.kosten ?? 0)}
           color="red"
-          subtitle={`BTW betaald: ${formatEuro(summary.btw_betaald)}`}
+          subtitle={loading ? '' : `BTW betaald: ${formatEuro(stats?.btw_betaald ?? 0)}`}
         />
         <SummaryCard
-          title={summary.te_betalen_btw >= 0 ? 'Te betalen BTW' : 'Terug te krijgen'}
-          value={formatEuro(Math.abs(summary.te_betalen_btw))}
-          color={summary.te_betalen_btw >= 0 ? 'orange' : 'blue'}
-          subtitle={`${summary.transacties_count} transacties`}
+          title={(stats?.btw_te_betalen ?? 0) >= 0 ? 'Te betalen BTW' : 'Terug te krijgen'}
+          value={loading ? '…' : formatEuro(Math.abs(stats?.btw_te_betalen ?? 0))}
+          color={(stats?.btw_te_betalen ?? 0) >= 0 ? 'orange' : 'blue'}
+          subtitle={loading ? '' : `${stats?.transactions_count ?? 0} transacties`}
         />
         <SummaryCard
           title="Documenten"
-          value={stats.total_documents.toString()}
+          value={loading ? '…' : String(stats?.doc_count ?? 0)}
           color="purple"
-          subtitle={stats.pending_documents > 0 ? `${stats.pending_documents} wachten op verwerking` : 'Alles verwerkt'}
+          subtitle={loading ? '' : (stats?.pending_count ?? 0) > 0
+            ? `${stats?.pending_count} wachten op verwerking`
+            : 'Alles verwerkt'}
         />
       </div>
 
-      <DashboardStats />
-      <RecentDocuments />
+      {/* Result */}
+      {!loading && stats && (
+        <div className="bg-white rounded-xl border border-gray-200 p-5">
+          <p className="text-sm font-medium text-gray-500 mb-1">Netto resultaat {periodLabel}</p>
+          <p className={`text-3xl font-bold ${(stats.omzet - stats.kosten) >= 0 ? 'text-gray-900' : 'text-red-600'}`}>
+            {formatEuro(stats.omzet - stats.kosten)}
+          </p>
+          <p className="text-xs text-gray-400 mt-1">
+            {formatEuro(stats.omzet)} omzet − {formatEuro(stats.kosten)} kosten
+          </p>
+        </div>
+      )}
     </div>
   )
 }
