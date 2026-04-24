@@ -53,6 +53,9 @@ export default function TransactiesPage() {
   const [search, setSearch] = useState('')
 
   // Bulk selection state
+  const [toonAlle, setToonAlle] = useState(false)
+
+  // Bulk selection state
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
   const [bulkCategorie, setBulkCategorie] = useState('')
   const [bulkBtw, setBulkBtw] = useState('')
@@ -81,13 +84,14 @@ export default function TransactiesPage() {
   const btwBedrag = bedragIncl - bedragExcl
 
   const q = search.trim().toLowerCase()
-  const filtered = q
-    ? transactions.filter(t =>
-        (t.leverancier || '').toLowerCase().includes(q) ||
-        (t.beschrijving || '').toLowerCase().includes(q) ||
-        (t.categorie || '').toLowerCase().includes(q)
-      )
-    : transactions
+  const ingeboektCount = transactions.filter(t => t.categorie).length
+  const filtered = transactions
+    .filter(t => toonAlle || !t.categorie)
+    .filter(t => !q || (
+      (t.leverancier || '').toLowerCase().includes(q) ||
+      (t.beschrijving || '').toLowerCase().includes(q) ||
+      (t.categorie || '').toLowerCase().includes(q)
+    ))
 
   const allVisible = filtered.length > 0 && filtered.every(t => selectedIds.has(t.id))
   const someSelected = selectedIds.size > 0
@@ -437,6 +441,16 @@ export default function TransactiesPage() {
             </button>
           ))}
         </div>
+        <button
+          onClick={() => setToonAlle(v => !v)}
+          className={`px-3 py-1.5 text-xs rounded-full font-medium border transition-colors ${
+            toonAlle
+              ? 'bg-gray-700 text-white border-gray-700'
+              : 'bg-white border-gray-200 text-gray-600 hover:bg-gray-50'
+          }`}
+        >
+          {toonAlle ? 'Verberg ingeboekt' : `Toon ingeboekt${ingeboektCount > 0 ? ` (${ingeboektCount})` : ''}`}
+        </button>
         <div className="relative flex-1 max-w-sm ml-auto">
           <Search className="absolute left-3 top-2 w-4 h-4 text-gray-400 pointer-events-none" />
           <input
@@ -518,7 +532,7 @@ export default function TransactiesPage() {
         </div>
       ) : filtered.length === 0 ? (
         <div className="bg-white rounded-xl border border-gray-200 p-12 text-center text-gray-400">
-          <p>{q ? `Geen resultaten voor "${search}"` : 'Geen transacties in dit kwartaal'}</p>
+          <p>{q ? `Geen resultaten voor "${search}"` : toonAlle ? 'Geen transacties in dit kwartaal' : 'Alle transacties zijn ingeboekt 🎉'}</p>
         </div>
       ) : (
         <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
