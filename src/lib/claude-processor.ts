@@ -199,22 +199,9 @@ export async function processINGCSV(csvContent: string): Promise<ProcessingResul
       const isAf = afbij.toLowerCase().includes('af') || afbij.toLowerCase() === 'd' || afbij.toLowerCase() === 'debet'
       const type: 'inkomend' | 'uitgaand' = isAf ? 'inkomend' : 'uitgaand'
 
-      const omschrijving = `${naam} ${med}`.toLowerCase()
-      let categorie = 'Overig'
-      if (omschrijving.includes('postnl') || omschrijving.includes('dhl') || omschrijving.includes('verzend') || omschrijving.includes('verpakking')) categorie = 'Verzending & Verpakking'
-      else if (omschrijving.includes('huur') || omschrijving.includes('rent')) categorie = 'Huur & Huisvesting'
-      else if (omschrijving.includes('inkoop') || omschrijving.includes('aliexpress') || omschrijving.includes('amazon')) categorie = 'Inkoop goederen'
-      else if (omschrijving.includes('google') || omschrijving.includes('facebook') || omschrijving.includes('meta') || omschrijving.includes('advertent')) categorie = 'Marketing & Reclame'
-      else if (omschrijving.includes('software') || omschrijving.includes('subscri') || omschrijving.includes('abonnement')) categorie = 'Software & Abonnementen'
-      else if (omschrijving.includes('telefoon') || omschrijving.includes('odido') || omschrijving.includes('kpn') || omschrijving.includes('t-mobile') || omschrijving.includes('internet')) categorie = 'Telefoonkosten'
-      else if (omschrijving.includes('boekhou') || omschrijving.includes('accountant') || omschrijving.includes('cave')) categorie = 'Accountant & Advies'
-      else if (omschrijving.includes('verzekering') || omschrijving.includes('insurance')) categorie = 'Verzekering'
-      else if (omschrijving.includes('spaarrekening') || omschrijving.includes('spaarre') || omschrijving.includes('eigen rekening') || omschrijving.includes('overboeking naar') || omschrijving.includes('interne')) categorie = 'Interne overboeking'
-      else if (type === 'uitgaand') categorie = 'Omzet'
-
       const date = new Date(datum)
       transactions.push({
-        datum, leverancier: naam, beschrijving: med || naam, categorie,
+        datum, leverancier: naam, beschrijving: med || naam, categorie: '',
         bedrag_excl_btw: bedragNum, btw_percentage: 0, btw_bedrag: 0, bedrag_incl_btw: bedragNum,
         type, kwartaal: getKwartaal(date), jaar: date.getFullYear(), maand: date.getMonth() + 1,
       })
