@@ -3,12 +3,15 @@
 import { useEffect, useState } from 'react'
 import { Document, Transaction } from '@/lib/types'
 import { formatDate, formatEuro } from '@/lib/utils'
-import { Link2, FileText, Search, X, CheckCircle, ExternalLink, ChevronRight } from 'lucide-react'
+import { Link2, FileText, Search, X, CheckCircle, ExternalLink, ChevronRight, Euro } from 'lucide-react'
 
 export default function KoppelenPage() {
   const [docs, setDocs] = useState<Document[]>([])
   const [linkedDocIds, setLinkedDocIds] = useState<Set<string>>(new Set())
-  const [transactions, setTransactions] = useState<Transaction[]>([])
+  // All transactions — used both for amount lookup and link modal
+  const [allTransactions, setAllTransactions] = useState<Transaction[]>([])
+  // Map: invoice document_id → extracted bedrag_incl_btw from Claude
+  const [docAmounts, setDocAmounts] = useState<Map<string, number>>(new Map())
   const [loading, setLoading] = useState(true)
 
   const [docSearch, setDocSearch] = useState('')
@@ -20,7 +23,7 @@ export default function KoppelenPage() {
     setLoading(true)
     const [docsRes, txRes] = await Promise.all([
       fetch('/api/data/documents?status=processed'),
-      fetch('/api/data/transactions?kwartaal=all&type=inkomend'),
+      fetch('/api/data/transactions?kwartaal=all'),
     ])
     const docsJson = await docsRes.json()
     const txJson = await txRes.json()
@@ -28,17 +31,35 @@ export default function KoppelenPage() {
     const allDocs: Document[] = docsJson.documents || []
     const allTx: Transaction[] = txJson.transactions || []
 
-    // Only show non-bankafschrift docs
+    // Only show non-bankafschrift docs (actual invoices / receipts)
     const invoiceDocs = allDocs.filter(d => d.file_type !== 'bankafschrift')
+    const bankDocs = new Set(allDocs.filter(d => d.file_type === 'bankafschrift').map(d => d.id))
 
-    // Track which doc IDs are already linked via a transaction's document_id
+    // Build map: invoice doc_id → total bedrag extracted by Claude
+    const amountMap = new Map<string, number>()
+    for (const tx of allTx) {
+      if (tx.document_id && !bankDocs.has(tx.document_id)) {
+        const prev = amountMap.get(tx.document_id) ?? 0
+        amountMap.set(tx.document_id, prev + (tx.bedrag_incl_btw ?? tx.bedrag_excl_btw ?? 0))
+      }
+    }
+
+    // ING transactions = those linked to a bankafschrift doc, OR no doc at all
+    // These are the ones the user picks from in the link modal
+    const ingTx = allTx.filter(t => !t.document_id || bankDocs.has(t.document_id))
+
+    // Track which invoice docs are already linked via a transaction's document_id
+    // A doc is "linked" when an ING transaction has document_id = that doc's id
     const linked = new Set(
-      allTx.map((t: Transaction) => t.document_id).filter(Boolean) as string[]
+      allTx
+        .filter(t => t.document_id && !bankDocs.has(t.document_id))
+        .map(t => t.document_id as string)
     )
 
     setDocs(invoiceDocs)
     setLinkedDocIds(linked)
-    setTransactions(allTx)
+    setDocAmounts(amountMap)
+    setAllTransactions(ingTx)
     setLoading(false)
   }
 
@@ -76,12 +97,21 @@ export default function KoppelenPage() {
   )
 
   const tq = txSearch.trim().toLowerCase()
-  const filteredTx = transactions.filter(t =>
-    !tq ||
-    (t.leverancier || '').toLowerCase().includes(tq) ||
-    (t.beschrijving || '').toLowerCase().includes(tq) ||
-    (t.datum || '').includes(tq)
-  )
+  const invoiceAmount = selectedDoc ? (docAmounts.get(selectedDoc.id) ?? null) : null
+  const filteredTx = allTransactions
+    .filter(t =>
+      !tq ||
+      (t.leverancier || '').toLowerCase().includes(tq) ||
+      (t.beschrijving || '').toLowerCase().includes(tq) ||
+      (t.datum || '').includes(tq)
+    )
+    .sort((a, b) => {
+      // Sort by amount proximity to invoice amount
+      if (invoiceAmount === null) return 0
+      const aDiff = Math.abs((a.bedrag_incl_btw ?? a.bedrag_excl_btw ?? 0) - invoiceAmount)
+      const bDiff = Math.abs((b.bedrag_incl_btw ?? b.bedrag_excl_btw ?? 0) - invoiceAmount)
+      return aDiff - bDiff
+    })
 
   if (loading) {
     return (
@@ -104,14 +134,23 @@ export default function KoppelenPage() {
       {/* Link modal */}
       {selectedDoc && (
         <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50">
-          <div className="bg-white rounded-xl p-6 max-w-lg w-full mx-4 shadow-xl max-h-[80vh] flex flex-col">
+          <div className="bg-white rounded-xl p-6 max-w-lg w-full mx-4 shadow-xl max-h-[85vh] flex flex-col">
             <div className="flex items-center justify-between mb-1">
               <h3 className="text-base font-semibold text-gray-900">Kies ING-transactie</h3>
               <button onClick={() => { setSelectedDoc(null); setTxSearch('') }} className="text-gray-400 hover:text-gray-600">
                 <X className="w-5 h-5" />
               </button>
             </div>
-            <p className="text-xs text-gray-400 mb-4 truncate">{selectedDoc.original_filename}</p>
+            <p className="text-xs text-gray-400 mb-1 truncate">{selectedDoc.original_filename}</p>
+
+            {/* Invoice amount badge */}
+            {invoiceAmount !== null && invoiceAmount > 0 && (
+              <div className="flex items-center gap-1.5 mb-4 bg-blue-50 border border-blue-200 rounded-lg px-3 py-2 text-sm">
+                <Euro className="w-4 h-4 text-blue-500 shrink-0" />
+                <span className="text-blue-700 font-medium">Factuurbedrag: {formatEuro(invoiceAmount)}</span>
+                <span className="text-blue-400 text-xs ml-1">— beste match bovenaan</span>
+              </div>
+            )}
 
             <div className="relative mb-3">
               <Search className="absolute left-3 top-2 w-4 h-4 text-gray-400 pointer-events-none" />
@@ -128,34 +167,55 @@ export default function KoppelenPage() {
             <div className="overflow-y-auto flex-1 space-y-1.5">
               {filteredTx.length === 0 ? (
                 <p className="text-sm text-gray-400 text-center py-8">Geen transacties gevonden</p>
-              ) : filteredTx.map(t => (
-                <button
-                  key={t.id}
-                  onClick={() => linkToTransaction(t.id)}
-                  disabled={linking}
-                  className="w-full text-left border border-gray-200 rounded-lg px-4 py-3 hover:bg-blue-50 hover:border-blue-300 transition-colors disabled:opacity-50"
-                >
-                  <div className="flex items-center justify-between gap-2">
-                    <div className="min-w-0">
-                      <p className="text-sm font-medium text-gray-900 truncate">
-                        {t.leverancier || t.beschrijving || 'Onbekend'}
-                      </p>
-                      <p className="text-xs text-gray-400">{t.datum} · {t.kwartaal}</p>
-                      {t.categorie && (
-                        <p className="text-xs text-blue-600 mt-0.5">{t.categorie}</p>
-                      )}
+              ) : filteredTx.map(t => {
+                const txAmount = t.bedrag_incl_btw ?? t.bedrag_excl_btw ?? 0
+                const diff = invoiceAmount !== null ? Math.abs(txAmount - invoiceAmount) : null
+                const isExact = diff !== null && diff < 0.02
+                const isClose = diff !== null && diff <= invoiceAmount! * 0.05
+
+                return (
+                  <button
+                    key={t.id}
+                    onClick={() => linkToTransaction(t.id)}
+                    disabled={linking}
+                    className={`w-full text-left border rounded-lg px-4 py-3 transition-colors disabled:opacity-50 ${
+                      isExact
+                        ? 'border-green-400 bg-green-50 hover:bg-green-100'
+                        : isClose
+                        ? 'border-blue-200 bg-blue-50/50 hover:bg-blue-50'
+                        : 'border-gray-200 hover:bg-gray-50'
+                    }`}
+                  >
+                    <div className="flex items-center justify-between gap-2">
+                      <div className="min-w-0">
+                        <div className="flex items-center gap-1.5">
+                          <p className="text-sm font-medium text-gray-900 truncate">
+                            {t.leverancier || t.beschrijving || 'Onbekend'}
+                          </p>
+                          {isExact && (
+                            <span className="text-xs text-green-600 bg-green-100 px-1.5 py-0.5 rounded shrink-0">Exacte match</span>
+                          )}
+                          {!isExact && isClose && (
+                            <span className="text-xs text-blue-600 bg-blue-100 px-1.5 py-0.5 rounded shrink-0">Dichtbij</span>
+                          )}
+                        </div>
+                        <p className="text-xs text-gray-400">{t.datum} · {t.kwartaal}</p>
+                        {t.categorie && (
+                          <p className="text-xs text-gray-500 mt-0.5">{t.categorie}</p>
+                        )}
+                      </div>
+                      <div className="text-right shrink-0">
+                        <p className={`text-sm font-bold ${isExact ? 'text-green-700' : 'text-gray-900'}`}>
+                          {formatEuro(txAmount)}
+                        </p>
+                        {diff !== null && diff > 0.02 && (
+                          <p className="text-xs text-gray-400">±{formatEuro(diff)}</p>
+                        )}
+                      </div>
                     </div>
-                    <div className="text-right shrink-0">
-                      <p className="text-sm font-bold text-gray-900">
-                        {formatEuro(t.bedrag_incl_btw ?? t.bedrag_excl_btw)}
-                      </p>
-                      {t.document_id && (
-                        <p className="text-xs text-orange-400">al gekoppeld</p>
-                      )}
-                    </div>
-                  </div>
-                </button>
-              ))}
+                  </button>
+                )
+              })}
             </div>
           </div>
         </div>
@@ -203,6 +263,7 @@ export default function KoppelenPage() {
                     key={doc.id}
                     doc={doc}
                     linked={false}
+                    amount={docAmounts.get(doc.id) ?? null}
                     onLink={() => { setSelectedDoc(doc); setTxSearch('') }}
                   />
                 ))}
@@ -223,6 +284,7 @@ export default function KoppelenPage() {
                     key={doc.id}
                     doc={doc}
                     linked={true}
+                    amount={docAmounts.get(doc.id) ?? null}
                     onLink={() => { setSelectedDoc(doc); setTxSearch('') }}
                   />
                 ))}
@@ -235,7 +297,12 @@ export default function KoppelenPage() {
   )
 }
 
-function DocRow({ doc, linked, onLink }: { doc: Document; linked: boolean; onLink: () => void }) {
+function DocRow({ doc, linked, amount, onLink }: {
+  doc: Document
+  linked: boolean
+  amount: number | null
+  onLink: () => void
+}) {
   return (
     <div className={`bg-white rounded-xl border px-4 py-3 flex items-center gap-4 ${
       linked ? 'border-green-200' : 'border-gray-200'
@@ -247,6 +314,12 @@ function DocRow({ doc, linked, onLink }: { doc: Document; linked: boolean; onLin
           {doc.file_type} · {doc.kwartaal || '—'} · {formatDate(doc.created_at)}
         </p>
       </div>
+      {/* Extracted amount badge */}
+      {amount !== null && amount > 0 && (
+        <span className="text-sm font-semibold text-gray-800 bg-gray-100 px-2.5 py-1 rounded-lg shrink-0">
+          {formatEuro(amount)}
+        </span>
+      )}
       {linked && (
         <span className="text-xs text-green-600 bg-green-50 px-2 py-0.5 rounded-full shrink-0">Gekoppeld</span>
       )}
