@@ -57,6 +57,7 @@ export default function TransactiesPage() {
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
   const [bulkCategorie, setBulkCategorie] = useState('')
   const [bulkBtw, setBulkBtw] = useState('')
+  const [bulkType, setBulkType] = useState('')
   const [bulkApplying, setBulkApplying] = useState(false)
   const [confirmBulkDelete, setConfirmBulkDelete] = useState(false)
 
@@ -73,8 +74,13 @@ export default function TransactiesPage() {
   useEffect(() => { load() }, [kwartaal, filter])
 
   const kwartalen = getAvailableKwartalen()
-  const totaalKosten = transactions.filter(t => t.type === 'inkomend').reduce((s, t) => s + (t.bedrag_incl_btw ?? t.bedrag_excl_btw), 0)
-  const totaalOmzet = transactions.filter(t => t.type === 'uitgaand').reduce((s, t) => s + (t.bedrag_incl_btw ?? t.bedrag_excl_btw), 0)
+  // Summary based on booked (categorised) transactions only
+  const geboektTx = transactions.filter(t => t.categorie)
+  const totaalOmzetExcl = geboektTx.filter(t => t.type === 'uitgaand').reduce((s, t) => s + t.bedrag_excl_btw, 0)
+  const totaalKostenExcl = geboektTx.filter(t => t.type === 'inkomend').reduce((s, t) => s + t.bedrag_excl_btw, 0)
+  const btwOntvangen = geboektTx.filter(t => t.type === 'uitgaand').reduce((s, t) => s + (t.btw_bedrag ?? 0), 0)
+  const btwBetaald   = geboektTx.filter(t => t.type === 'inkomend').reduce((s, t) => s + (t.btw_bedrag ?? 0), 0)
+  const teBetalen    = btwOntvangen - btwBetaald
 
   const btwPct = parseFloat(form.btw_percentage) / 100
   const bedragIncl = parseFloat(form.bedrag_incl_btw) || 0
@@ -156,13 +162,14 @@ export default function TransactiesPage() {
   }
 
   const handleBulkApply = async () => {
-    if (!bulkCategorie && !bulkBtw) return
+    if (!bulkCategorie && !bulkBtw && !bulkType) return
     setBulkApplying(true)
-    const body: { ids: string[]; categorie?: string; btw_percentage?: number } = {
+    const body: { ids: string[]; categorie?: string; btw_percentage?: number; type?: string } = {
       ids: Array.from(selectedIds),
     }
     if (bulkCategorie) body.categorie = bulkCategorie
     if (bulkBtw) body.btw_percentage = parseInt(bulkBtw)
+    if (bulkType) body.type = bulkType
     await fetch('/api/data/transactions/bulk', {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
@@ -170,7 +177,18 @@ export default function TransactiesPage() {
     })
     setBulkCategorie('')
     setBulkBtw('')
+    setBulkType('')
     setBulkApplying(false)
+    await load()
+  }
+
+  const toggleType = async (id: string, currentType: string) => {
+    const newType = currentType === 'inkomend' ? 'uitgaand' : 'inkomend'
+    await fetch(`/api/data/transactions/${id}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ type: newType }),
+    })
     await load()
   }
 
@@ -407,21 +425,33 @@ export default function TransactiesPage() {
         </div>
       )}
 
-      {/* Summary */}
-      <div className="grid grid-cols-3 gap-2 sm:gap-4 mb-4 sm:mb-6">
-        <div className="bg-green-50 border border-green-100 rounded-xl p-4">
-          <p className="text-xs text-green-600 font-medium">Omzet incl. BTW</p>
-          <p className="text-xl font-bold text-green-700 mt-1">{formatEuro(totaalOmzet)}</p>
+      {/* Summary — geboekte transacties */}
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 sm:gap-3 mb-4 sm:mb-6">
+        <div className="bg-green-50 border border-green-100 rounded-xl p-3 sm:p-4">
+          <p className="text-xs text-green-600 font-medium">Omzet excl. BTW</p>
+          <p className="text-lg sm:text-xl font-bold text-green-700 mt-1">{formatEuro(totaalOmzetExcl)}</p>
+          <p className="text-xs text-green-500 mt-0.5">BTW: {formatEuro(btwOntvangen)}</p>
         </div>
-        <div className="bg-red-50 border border-red-100 rounded-xl p-4">
-          <p className="text-xs text-red-600 font-medium">Kosten incl. BTW</p>
-          <p className="text-xl font-bold text-red-700 mt-1">{formatEuro(totaalKosten)}</p>
+        <div className="bg-red-50 border border-red-100 rounded-xl p-3 sm:p-4">
+          <p className="text-xs text-red-600 font-medium">Kosten excl. BTW</p>
+          <p className="text-lg sm:text-xl font-bold text-red-700 mt-1">{formatEuro(totaalKostenExcl)}</p>
+          <p className="text-xs text-red-400 mt-0.5">BTW: {formatEuro(btwBetaald)}</p>
         </div>
-        <div className="bg-gray-50 border border-gray-100 rounded-xl p-4">
-          <p className="text-xs text-gray-600 font-medium">Resultaat incl. BTW</p>
-          <p className={`text-xl font-bold mt-1 ${totaalOmzet - totaalKosten >= 0 ? 'text-gray-900' : 'text-red-600'}`}>
-            {formatEuro(totaalOmzet - totaalKosten)}
+        <div className={`border rounded-xl p-3 sm:p-4 ${teBetalen >= 0 ? 'bg-orange-50 border-orange-100' : 'bg-blue-50 border-blue-100'}`}>
+          <p className={`text-xs font-medium ${teBetalen >= 0 ? 'text-orange-600' : 'text-blue-600'}`}>
+            {teBetalen >= 0 ? 'Te betalen BTW' : 'BTW terug'}
           </p>
+          <p className={`text-lg sm:text-xl font-bold mt-1 ${teBetalen >= 0 ? 'text-orange-700' : 'text-blue-700'}`}>
+            {formatEuro(Math.abs(teBetalen))}
+          </p>
+          <p className="text-xs text-gray-400 mt-0.5">{geboektTx.length} geboekt</p>
+        </div>
+        <div className="bg-gray-50 border border-gray-100 rounded-xl p-3 sm:p-4">
+          <p className="text-xs text-gray-600 font-medium">Resultaat</p>
+          <p className={`text-lg sm:text-xl font-bold mt-1 ${totaalOmzetExcl - totaalKostenExcl >= 0 ? 'text-gray-900' : 'text-red-600'}`}>
+            {formatEuro(totaalOmzetExcl - totaalKostenExcl)}
+          </p>
+          <p className="text-xs text-gray-400 mt-0.5">excl. BTW</p>
         </div>
       </div>
 
@@ -534,9 +564,18 @@ export default function TransactiesPage() {
             <option value="9" className="text-gray-900">9%</option>
             <option value="21" className="text-gray-900">21%</option>
           </select>
+          <select
+            value={bulkType}
+            onChange={e => setBulkType(e.target.value)}
+            className="bg-white/15 text-white text-xs rounded-lg px-2.5 py-1.5 border border-white/30"
+          >
+            <option value="">Type…</option>
+            <option value="inkomend" className="text-gray-900">Kosten</option>
+            <option value="uitgaand" className="text-gray-900">Omzet</option>
+          </select>
           <button
             onClick={handleBulkApply}
-            disabled={bulkApplying || (!bulkCategorie && !bulkBtw)}
+            disabled={bulkApplying || (!bulkCategorie && !bulkBtw && !bulkType)}
             className="bg-white text-blue-600 text-xs font-semibold px-3 py-1.5 rounded-lg hover:bg-blue-50 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
           >
             {bulkApplying ? 'Bezig...' : 'Toepassen'}
@@ -599,9 +638,12 @@ export default function TransactiesPage() {
                     <div className="flex items-center gap-2 mt-0.5 flex-wrap">
                       <span className="text-xs text-gray-400">{t.datum}</span>
                       {t.categorie && <span className="text-xs text-blue-600">{t.categorie}</span>}
-                      <span className={`text-xs px-1.5 py-0.5 rounded-full ${
-                        t.type === 'inkomend' ? 'bg-red-50 text-red-600' : 'bg-green-50 text-green-600'
-                      }`}>{t.type === 'inkomend' ? 'Kosten' : 'Omzet'}</span>
+                      <button onClick={e => { e.stopPropagation(); toggleType(t.id, t.type) }}
+                        className={`text-xs px-1.5 py-0.5 rounded-full border transition-colors ${
+                          t.type === 'inkomend' ? 'bg-red-50 text-red-600 border-red-200 hover:bg-red-100' : 'bg-green-50 text-green-600 border-green-200 hover:bg-green-100'
+                        }`} title="Klik om te wisselen">
+                        {t.type === 'inkomend' ? 'Kosten' : 'Omzet'}
+                      </button>
                       <span className="text-xs text-gray-400">{t.btw_percentage || 0}% BTW</span>
                     </div>
                   </div>
@@ -647,9 +689,12 @@ export default function TransactiesPage() {
                       <td className="px-4 py-3 text-right text-gray-400 text-xs">{t.btw_percentage || 0}%</td>
                       <td className="px-4 py-3 text-right font-medium text-gray-900">{formatEuro(t.bedrag_incl_btw || 0)}</td>
                       <td className="px-4 py-3">
-                        <span className={`text-xs px-2 py-0.5 rounded-full ${
-                          t.type === 'inkomend' ? 'bg-red-50 text-red-600' : 'bg-green-50 text-green-600'
-                        }`}>{t.type === 'inkomend' ? 'Kosten' : 'Omzet'}</span>
+                        <button onClick={e => { e.stopPropagation(); toggleType(t.id, t.type) }}
+                          className={`text-xs px-2 py-0.5 rounded-full border transition-colors ${
+                            t.type === 'inkomend' ? 'bg-red-50 text-red-600 border-red-200 hover:bg-red-100' : 'bg-green-50 text-green-600 border-green-200 hover:bg-green-100'
+                          }`} title="Klik om te wisselen">
+                          {t.type === 'inkomend' ? 'Kosten' : 'Omzet'}
+                        </button>
                       </td>
                     </tr>
                   )

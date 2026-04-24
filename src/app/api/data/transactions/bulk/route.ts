@@ -4,10 +4,11 @@ import { createServiceClient } from '@/lib/supabase/server'
 // PATCH /api/data/transactions/bulk — update categorie/btw on multiple transactions
 export async function PATCH(req: NextRequest) {
   try {
-    const { ids, categorie, btw_percentage } = await req.json() as {
+    const { ids, categorie, btw_percentage, type } = await req.json() as {
       ids: string[]
       categorie?: string
       btw_percentage?: number
+      type?: string
     }
 
     if (!ids || ids.length === 0) {
@@ -17,6 +18,7 @@ export async function PATCH(req: NextRequest) {
     const supabase = createServiceClient()
     const updates: Record<string, unknown> = {}
     if (categorie !== undefined) updates.categorie = categorie
+    if (type !== undefined) updates.type = type
     if (btw_percentage !== undefined) {
       updates.btw_percentage = btw_percentage
       // Recalculate BTW amounts for each transaction individually
