@@ -3,7 +3,7 @@
 import { useEffect, useState } from 'react'
 import { Transaction, BTW_CATEGORIES } from '@/lib/types'
 import { formatEuro, getCurrentKwartaal, kwartaalLabel } from '@/lib/utils'
-import { ChevronDown, Plus, X } from 'lucide-react'
+import { ChevronDown, Plus, X, Trash2 } from 'lucide-react'
 
 function getAvailableKwartalen() {
   const now = new Date()
@@ -47,6 +47,8 @@ export default function TransactiesPage() {
   const [form, setForm] = useState<ManualBookingForm>(DEFAULT_FORM)
   const [saving, setSaving] = useState(false)
   const [saveError, setSaveError] = useState('')
+  const [confirmWis, setConfirmWis] = useState(false)
+  const [wisingKwartaal, setWisingKwartaal] = useState(false)
 
   async function load() {
     setLoading(true)
@@ -68,6 +70,14 @@ export default function TransactiesPage() {
   const bedragIncl = parseFloat(form.bedrag_incl_btw) || 0
   const bedragExcl = bedragIncl > 0 ? bedragIncl / (1 + btwPct) : 0
   const btwBedrag = bedragIncl - bedragExcl
+
+  const handleWisKwartaal = async () => {
+    setWisingKwartaal(true)
+    await fetch(`/api/data/transactions?kwartaal=${kwartaal}`, { method: 'DELETE' })
+    setConfirmWis(false)
+    setWisingKwartaal(false)
+    await load()
+  }
 
   const handleSave = async () => {
     if (!form.datum || !form.bedrag_incl_btw || !form.type) {
@@ -127,6 +137,15 @@ export default function TransactiesPage() {
             </select>
             <ChevronDown className="absolute right-2 top-2.5 w-4 h-4 text-gray-400 pointer-events-none" />
           </div>
+          <button
+            onClick={() => setConfirmWis(true)}
+            disabled={transactions.length === 0}
+            className="flex items-center gap-1.5 px-3 py-2 border border-red-200 text-red-500 rounded-lg text-sm font-medium hover:bg-red-50 transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
+            title="Wis alle transacties en documenten van dit kwartaal"
+          >
+            <Trash2 className="w-4 h-4" />
+            Wis kwartaal
+          </button>
         </div>
       </div>
 
@@ -268,6 +287,29 @@ export default function TransactiesPage() {
                   {saving ? 'Opslaan...' : 'Opslaan'}
                 </button>
               </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Wis kwartaal confirm modal */}
+      {confirmWis && (
+        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50">
+          <div className="bg-white rounded-xl p-6 max-w-sm w-full mx-4 shadow-xl">
+            <h3 className="text-base font-semibold text-gray-900 mb-2">Kwartaal wissen?</h3>
+            <p className="text-sm text-gray-500 mb-1">
+              Dit verwijdert alle <strong>{transactions.length} transacties</strong> en bijbehorende documenten van <strong>{kwartaalLabel(kwartaal)}</strong>.
+            </p>
+            <p className="text-xs text-red-500 mb-5">Dit kan niet ongedaan worden gemaakt.</p>
+            <div className="flex gap-3">
+              <button onClick={() => setConfirmWis(false)}
+                className="flex-1 px-4 py-2 border border-gray-200 rounded-lg text-sm font-medium text-gray-600 hover:bg-gray-50">
+                Annuleren
+              </button>
+              <button onClick={handleWisKwartaal} disabled={wisingKwartaal}
+                className="flex-1 px-4 py-2 bg-red-600 text-white rounded-lg text-sm font-medium hover:bg-red-700 disabled:opacity-50">
+                {wisingKwartaal ? 'Bezig...' : 'Alles wissen'}
+              </button>
             </div>
           </div>
         </div>

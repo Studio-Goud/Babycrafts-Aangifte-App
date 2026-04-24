@@ -2,6 +2,28 @@ import { NextRequest, NextResponse } from 'next/server'
 import { createServiceClient } from '@/lib/supabase/server'
 import { Transaction, getKwartaal } from '@/lib/types'
 
+export async function DELETE(req: NextRequest) {
+  const kwartaal = req.nextUrl.searchParams.get('kwartaal')
+  if (!kwartaal) return NextResponse.json({ error: 'kwartaal vereist' }, { status: 400 })
+
+  const supabase = createServiceClient()
+
+  // Delete all transactions for this quarter
+  const { error: txErr } = await supabase.from('transactions').delete().eq('kwartaal', kwartaal)
+  if (txErr) return NextResponse.json({ error: txErr.message }, { status: 500 })
+
+  // Also delete all documents (and their storage files) for this quarter
+  const { data: docs } = await supabase.from('documents').select('id, filename').eq('kwartaal', kwartaal)
+  if (docs && docs.length > 0) {
+    const keys = docs.map((d: { filename: string }) => d.filename).filter(Boolean)
+    if (keys.length) await supabase.storage.from('Documents').remove(keys)
+    const ids = docs.map((d: { id: string }) => d.id)
+    await supabase.from('documents').delete().in('id', ids)
+  }
+
+  return NextResponse.json({ ok: true, transactions_deleted: true, documents_deleted: docs?.length ?? 0 })
+}
+
 export async function GET(req: NextRequest) {
   const { searchParams } = req.nextUrl
   const kwartaal = searchParams.get('kwartaal') || getKwartaal(new Date())
