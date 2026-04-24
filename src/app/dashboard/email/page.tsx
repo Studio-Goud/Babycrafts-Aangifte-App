@@ -1,7 +1,6 @@
 'use client'
 
 import { useState, useEffect } from 'react'
-import { createClient } from '@/lib/supabase/client'
 import { EmailSyncLog } from '@/lib/types'
 import { Mail, RefreshCw, CheckCircle, AlertCircle, Calendar } from 'lucide-react'
 
@@ -35,13 +34,9 @@ export default function EmailSyncPage() {
   const [statusMsg, setStatusMsg] = useState('')
 
   async function loadLogs() {
-    const supabase = createClient()
-    const { data } = await supabase
-      .from('email_sync_log')
-      .select('*')
-      .order('synced_at', { ascending: false })
-      .limit(20)
-    setLogs(data || [])
+    const res = await fetch('/api/data/email-logs')
+    const json = await res.json()
+    setLogs(json.logs || [])
     setLoading(false)
   }
 

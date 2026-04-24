@@ -11,6 +11,7 @@ import {
   Settings,
   Receipt,
   LogOut,
+  Link2,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 
@@ -19,6 +20,7 @@ const nav = [
   { href: '/dashboard/upload', label: 'Uploaden', icon: Upload },
   { href: '/dashboard/documenten', label: 'Documenten', icon: FileText },
   { href: '/dashboard/transacties', label: 'Transacties', icon: Receipt },
+  { href: '/dashboard/koppelen', label: 'Koppelen', icon: Link2 },
   { href: '/dashboard/email', label: 'Email Sync', icon: Mail },
   { href: '/dashboard/btw', label: 'BTW Aangifte', icon: BarChart3 },
   { href: '/dashboard/instellingen', label: 'Instellingen', icon: Settings },

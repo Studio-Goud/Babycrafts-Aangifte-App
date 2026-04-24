@@ -1,7 +1,6 @@
 'use client'
 
 import { useEffect, useState } from 'react'
-import { createClient } from '@/lib/supabase/client'
 import { formatEuro, kwartaalLabel } from '@/lib/utils'
 import { BTWSummary } from '@/lib/types'
 
@@ -11,34 +10,36 @@ export default function DashboardStats() {
 
   useEffect(() => {
     async function load() {
-      const supabase = createClient()
       const year = new Date().getFullYear()
       const kwartalen = [`${year}-Q1`, `${year}-Q2`, `${year}-Q3`, `${year}-Q4`]
 
       const results = await Promise.all(
         kwartalen.map(async (kw) => {
-          const { data: txs } = await supabase
-            .from('transactions')
-            .select('*')
-            .eq('kwartaal', kw)
+          const res = await fetch(`/api/data/transactions?kwartaal=${kw}&type=all`)
+          const json = await res.json()
+          const transactions: Array<{ type: string; bedrag_excl_btw: number; btw_bedrag?: number }> = json.transactions || []
 
-          const transactions = txs || []
           const inkomend = transactions.filter(t => t.type === 'inkomend')
           const uitgaand = transactions.filter(t => t.type === 'uitgaand')
 
+          const omzet_excl_btw = uitgaand.reduce((s, t) => s + (t.bedrag_excl_btw || 0), 0)
+          const btw_ontvangen = uitgaand.reduce((s, t) => s + (t.btw_bedrag || 0), 0)
+          const kosten_excl_btw = inkomend.reduce((s, t) => s + (t.bedrag_excl_btw || 0), 0)
+          const btw_betaald = inkomend.reduce((s, t) => s + (t.btw_bedrag || 0), 0)
+
           return {
             kwartaal: kw,
-            omzet_excl_btw: uitgaand.reduce((s, t) => s + (t.bedrag_excl_btw || 0), 0),
-            btw_ontvangen: uitgaand.reduce((s, t) => s + (t.btw_bedrag || 0), 0),
-            kosten_excl_btw: inkomend.reduce((s, t) => s + (t.bedrag_excl_btw || 0), 0),
-            btw_betaald: inkomend.reduce((s, t) => s + (t.btw_bedrag || 0), 0),
-            te_betalen_btw: 0,
+            omzet_excl_btw,
+            btw_ontvangen,
+            kosten_excl_btw,
+            btw_betaald,
+            te_betalen_btw: btw_ontvangen - btw_betaald,
             transacties_count: transactions.length,
-          }
+          } satisfies BTWSummary
         })
       )
 
-      setData(results.map(r => ({ ...r, te_betalen_btw: r.btw_ontvangen - r.btw_betaald })))
+      setData(results)
       setLoading(false)
     }
     load()

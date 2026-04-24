@@ -1,17 +1,17 @@
-import { createClient } from '@/lib/supabase/server'
+import { createServiceClient } from '@/lib/supabase/server'
 import { formatEuro, getCurrentKwartaal, kwartaalLabel } from '@/lib/utils'
-import { BTWSummary } from '@/lib/types'
+import { BTWSummary, Transaction } from '@/lib/types'
 import DashboardStats from '@/components/DashboardStats'
 import RecentDocuments from '@/components/RecentDocuments'
 
 async function getBTWSummary(kwartaal: string): Promise<BTWSummary> {
-  const supabase = await createClient()
+  const supabase = createServiceClient()
   const { data } = await supabase
     .from('transactions')
     .select('*')
     .eq('kwartaal', kwartaal)
 
-  const transactions = data || []
+  const transactions = (data || []) as Transaction[]
   const inkomend = transactions.filter(t => t.type === 'inkomend')
   const uitgaand = transactions.filter(t => t.type === 'uitgaand')
 
@@ -32,7 +32,7 @@ async function getBTWSummary(kwartaal: string): Promise<BTWSummary> {
 }
 
 async function getStats() {
-  const supabase = await createClient()
+  const supabase = createServiceClient()
   const [{ count: docs }, { count: pending }, { data: lastSync }] = await Promise.all([
     supabase.from('documents').select('*', { count: 'exact', head: true }),
     supabase.from('documents').select('*', { count: 'exact', head: true }).eq('status', 'pending'),

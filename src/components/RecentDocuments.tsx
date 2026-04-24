@@ -1,7 +1,6 @@
 'use client'
 
 import { useEffect, useState } from 'react'
-import { createClient } from '@/lib/supabase/client'
 import { Document } from '@/lib/types'
 import { formatDate } from '@/lib/utils'
 import { FileText, Mail, Upload, Camera, AlertCircle, CheckCircle, Clock } from 'lucide-react'
@@ -27,13 +26,10 @@ export default function RecentDocuments() {
 
   useEffect(() => {
     async function load() {
-      const supabase = createClient()
-      const { data } = await supabase
-        .from('documents')
-        .select('*')
-        .order('created_at', { ascending: false })
-        .limit(8)
-      setDocs(data || [])
+      const res = await fetch('/api/data/documents?status=all')
+      const json = await res.json()
+      const all: Document[] = json.documents || []
+      setDocs(all.slice(0, 8))
       setLoading(false)
     }
     load()

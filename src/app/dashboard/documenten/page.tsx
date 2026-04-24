@@ -1,7 +1,6 @@
 'use client'
 
 import { useEffect, useState } from 'react'
-import { createClient } from '@/lib/supabase/client'
 import { Document, DocumentStatus } from '@/lib/types'
 import { formatDate } from '@/lib/utils'
 import { FileText, Mail, Upload, Camera, AlertCircle, CheckCircle, Clock, ExternalLink, RefreshCw, Trash2 } from 'lucide-react'
@@ -24,11 +23,10 @@ export default function DocumentenPage() {
 
   async function load() {
     setLoading(true)
-    const supabase = createClient()
-    let query = supabase.from('documents').select('*').order('created_at', { ascending: false })
-    if (filter !== 'all') query = query.eq('status', filter)
-    const { data } = await query
-    setDocs(data || [])
+    const params = new URLSearchParams({ status: filter })
+    const res = await fetch(`/api/data/documents?${params}`)
+    const json = await res.json()
+    setDocs(json.documents || [])
     setLoading(false)
   }
 
@@ -43,20 +41,10 @@ export default function DocumentenPage() {
 
   const deleteDoc = async (doc: Document) => {
     setDeleting(doc.id)
-    const supabase = createClient()
-
-    // Delete transactions first
-    await supabase.from('transactions').delete().eq('document_id', doc.id)
-
-    // Delete from storage
-    if (doc.filename) {
-      await supabase.storage.from('Documents').remove([doc.filename])
+    const res = await fetch(`/api/data/documents?id=${doc.id}`, { method: 'DELETE' })
+    if (res.ok) {
+      setDocs(prev => prev.filter(d => d.id !== doc.id))
     }
-
-    // Delete document record
-    await supabase.from('documents').delete().eq('id', doc.id)
-
-    setDocs(prev => prev.filter(d => d.id !== doc.id))
     setConfirmDelete(null)
     setDeleting(null)
   }
